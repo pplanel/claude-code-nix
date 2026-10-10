@@ -27,20 +27,11 @@ pkgs/claude-code/update.sh --dry-run  # just show what would change
 
 Then commit `manifest.json`, and bump this input wherever it's used.
 
-### Binary cache
-
-`.github/workflows/publish-cache.yml` builds the package on each push to `main` and pushes it to `ghcr.io/pplanel/claude-code-nix/nix-cache`, using the reusable workflow from [pplanel/nixcache](https://github.com/pplanel/nixcache).
-- **Signing key:** `claude-code-nix-cache-1`. The public half is in `public-key.txt`.
-- **Private half:** the repo secret `NIX_SIGNING_KEY`, with a copy in 1Password (Personal, `claude-code-nix nix cache signing key (claude-code-nix-cache-1)`).
-
-**The GHCR package stays private.** It contains Anthropic's proprietary binary, and making it public would redistribute that binary. A machine that can't reach the cache just downloads the binary from `downloads.claude.ai`, which is what the derivation's `fetchurl` does anyway.
-
 ## Instances
 
 ```nix
 # flake inputs
 claude-code-nix.url = "github:pplanel/claude-code-nix";
-claude-code-nix.inputs.nixpkgs.follows = "nixpkgs";
 
 # nix-darwin modules
 claude-code-nix.darwinModules.default
@@ -79,6 +70,7 @@ Each kind is a module in `modules/instance/`. An entry can be a path or the text
 | `commands.<name>` | `<configDir>/commands/<name>.md` |
 | `memory` | `<configDir>/CLAUDE.md`. Unset by default, so `CLAUDE.md` stays hand-written and `/memory` can edit it. |
 | `settings` | merged into `<configDir>/settings.json` (see below) |
+| `plugins` | not linked: the instance's command loads each with `--plugin-dir` (see below) |
 
 `shared` holds the same options. An instance adds to those entries, overrides one, or drops one by setting it to `null`.
 
@@ -124,6 +116,38 @@ So `selfManagement.permissions`, on by default, adds these to every instance's s
 | allow `Read(<checkout>/**)` | when `checkout` is set |
 | allow `Edit(<checkout>/**)` | only with `selfManagement.allowCheckoutEdits = true` |
 | deny `Edit(//nix/**)` | nothing writes under `/nix` |
+
+### Plugins
+
+`plugins` (in `shared` or per instance) lists plugin folders, each with `.claude-plugin/plugin.json`. The instance's command passes each one to Claude Code with `--plugin-dir`, so:
+- nothing is installed or published
+- plugins load in place from the read-only store, and show up as `<name>@inline`
+- they load only when Claude is started through that command, not from the desktop app or IDE extensions
+
+### Handoff
+
+`handoff` builds the handoff plugin (`pkgs/handoff-plugin`) with your hosts in it, and loads it in the instances you list:
+
+```nix
+programs.claude-code-nix.handoff = {
+  enable = true;
+  githubOwner = "me";                 # only github.com/me/* repos are handed off
+  instances = ["claude-personal"];    # load the plugin and its status line
+  hosts = {                           # every machine, by `hostname -s`
+    laptop  = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; command = "claude"; defaultTarget = "desktop"; };
+    desktop = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; command = "claude"; defaultTarget = "laptop"; };
+  };
+};
+```
+
+What it does:
+- **`/handoff [host]`** (the `handoff` skill and `bin/claude-handoff`) moves the current session to another host. It commits and pushes the work on a `handoff/…` branch, checks it out there, copies the transcript and the project's memory into that host's config dir, and resumes the session in tmux (`work:handoff-<repo>`).
+- **The quota hook** (`UserPromptSubmit` and `PostToolBatch`) warns at 70% of the 5-hour or weekly limit, and at 80% tells Claude to hand off to `defaultTarget`.
+- **The status line** saves the rate limits that the hook reads. Plugins can't set `statusLine`, so the module sets it in the instance's `settings` instead.
+
+The handoff copies only that one session. Config dirs are never synced between hosts.
+
+`nix flake check` builds the plugin for example hosts, tests the hook's answers, and runs `claude plugin validate` on it.
 
 ### Layout
 

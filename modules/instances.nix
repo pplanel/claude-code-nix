@@ -80,6 +80,7 @@ self: {
     ./instance/agents.nix
     ./instance/commands.nix
     ./instance/settings.nix
+    ./instance/plugins.nix
   ];
 
   sharedType = types.submoduleWith {
@@ -93,6 +94,10 @@ self: {
     modules = kinds ++ [./instance/base.nix ./instance/self-management.nix];
   };
 
+  # Shared plugins, then the instance's, each loaded with --plugin-dir.
+  pluginArgs = i:
+    lib.concatMap (p: ["--plugin-dir" "${p}"]) (lib.unique (cfg.shared.plugins ++ i.plugins));
+
   wrapper = name: i:
     pkgs.writeShellScriptBin name ''
       ${lib.optionalString (i.configDir != null) ''
@@ -104,9 +109,11 @@ self: {
         else
           unset ANTHROPIC_API_KEY
         fi
-      ''}${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") i.extraEnv)}exec ${lib.getExe cfg.package} ${lib.escapeShellArgs i.extraArgs} "$@"
+      ''}${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") i.extraEnv)}exec ${lib.getExe cfg.package} ${lib.escapeShellArgs (pluginArgs i ++ i.extraArgs)} "$@"
     '';
 in {
+  imports = [./handoff.nix];
+
   options.programs.claude-code-nix = {
     enable = lib.mkEnableOption "named Claude Code instances";
     package = mkOption {
