@@ -1,0 +1,33 @@
+name: CI
+
+# nix flake check on every pull request and push to main: the settings merge
+# tests, and the handoff plugin's checks (its layout, the quota hook, the
+# end-to-end claude-handoff tests, claude plugin validate). The checks build
+# for aarch64-darwin, so they run on an Apple Silicon runner. No secrets.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: nix flake check
+        run: nix flake check -L
+
+      - name: Formatting
+        run: nix fmt -- --check .
