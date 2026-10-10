@@ -3,6 +3,8 @@
 # --plugin-dir from the store (instances' `plugins`), never published.
 #   skills/handoff     the procedure Claude follows
 #   bin/claude-handoff on Claude's Bash PATH while the plugin is loaded (Python)
+#   bin/handoff-resume resumes a session handed off to the current folder
+#   share/claude-handoff/hook.zsh  says so on cd into such a folder
 #   hooks/hooks.json   quota-check on UserPromptSubmit and PostToolBatch
 #   scripts/statusline.sh  saves rate limits for the hook; plugins can't set
 #                      statusLine, so the module points settings.json at
@@ -80,6 +82,8 @@ in
     install -m755 ${script "quota-check.sh"} $out/scripts/quota-check.sh
     install -m755 ${script "statusline.sh"} $out/scripts/statusline.sh
     install -m755 ${script "claude-handoff.py"} $out/bin/claude-handoff
+    install -m755 ${script "handoff-resume.sh"} $out/bin/handoff-resume
+    install -Dm644 ${script "hook.zsh"} $out/share/claude-handoff/hook.zsh
     cp ${script "SKILL.md"} $out/skills/handoff/SKILL.md
     # Nothing may be left unfilled.
     if grep -rn '@[A-Z_]*@' $out; then echo "unfilled placeholders" >&2; exit 1; fi

@@ -58,6 +58,7 @@ def world(tmp_path):
         "CLAUDE_HANDOFF_LOCAL": "1",
         "CLAUDE_HANDOFF_HOST": "alpha",
         "CLAUDE_HANDOFF_OWNER": "someone",
+        "CLAUDE_HANDOFF_STATE": str(b / "state"),
         "CLAUDE_HANDOFF_HOSTS": json.dumps(hosts),
         "CLAUDE_CONFIG_DIR": str(a / "cfg"),
     }
@@ -101,7 +102,6 @@ def handoff(w, *extra, cwd=None):
             str(w["transcript"]),
             "--cwd",
             str(cwd or w["wt"] / "sub"),
-            "--no-tmux",
             *extra,
         ],
         env=w["env"],
@@ -142,7 +142,12 @@ def test_moves_worktree_with_uncommitted_work(world):
     assert str(wt_there) in text and str(w["wt"]) not in text
     assert (project_there / "memory/note.md").read_text() == "remember\n"
     assert (w["a"] / "cfg/quota/handed-off" / SESSION).exists()
-    assert f"cd {wt_there / 'sub'} && claude --resume {SESSION}" in r.stdout
+    marker = json.loads(
+        (w["b"] / "state" / (str(wt_there / "sub").replace("/", "-").replace(".", "-") + ".json")).read_text()
+    )
+    assert marker["dir"] == str(wt_there / "sub") and marker["session"] == SESSION
+    assert marker["command"] == "claude" and marker["from"] == "alpha"
+    assert f"cd {wt_there / 'sub'} && handoff-resume (or claude --resume {SESSION})" in r.stdout
 
 
 def test_reuses_existing_target_worktree(world):

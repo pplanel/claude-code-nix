@@ -38,12 +38,12 @@ Set the Bash timeout to 300000 ms. `claude-handoff` comes with this plugin (clau
 2. pushes the branch's commits and the snapshot straight to the target's copy of the repo over ssh, cloning the repo there first if needed (no new branch, nothing goes to GitHub);
 3. checks out the same branch in the same worktree (or the main checkout) in the target's layout, and restores the uncommitted work there exactly as it was;
 4. copies the transcript (paths rewritten to the target's layout) and memory into the target's Claude config;
-5. opens tmux window `work:handoff-<repo>` there, running the target's claude with `--resume`, sends it a "continue autonomously" note, and marks this session handed off. If the target has no tmux running it doesn't start one (a tmux server started over ssh can't reach the local network); it prints the resume command instead.
+5. leaves a marker on the target saying the session waits in that folder, and marks this session handed off. On the target, `cd` into the folder: zsh says a session is waiting, and `handoff-resume` resumes it. Only if the user asked for tmux (e.g. `/handoff arrakis tmux`), pass `--tmux`: it then resumes in a new window of the target's running tmux and sends it a "continue autonomously" note (it never starts a tmux server over ssh; without one it leaves the marker instead).
 
 It reaches the target over the first ssh route that answers: `<host>.airshell`, `<host>.local`, `<host>` (Tailscale), then any extra aliases. If the target's checkout has local changes of its own, it stops without touching them. `--dry-run` shows the plan without doing anything.
 
 ## 4. Report, then stop
 
-- **On success:** tell the user it now continues in the target's tmux window `work:handoff-<repo>` (`ssh <target> -t tmux attach -t work`), on the same branch, with the uncommitted work restored. If the script printed a resume command instead (no tmux on the target), give the user that command.
+- **On success:** tell the user the session waits on the target in its folder (the same worktree and branch, uncommitted work restored): `cd` there and run `handoff-resume` (or the `--resume` command the script printed). With `--tmux`, it's running in the target's tmux window `work:handoff-<repo>` instead (`ssh <target> -t tmux attach -t work`).
 - **On failure:** report the exact error and the step it stopped at. Don't retry blindly. What was already done (refs pushed to the target, copied files) is harmless, and this checkout is unchanged. Tell the user how to finish by hand: on the target, `cd` to the repo in its layout and run its claude command with `--resume <session_id>`.
 - **After a successful handoff, do no more work in this session:** no edits, commands or commits. The target owns it now, and two sessions editing the same work would collide. Only answer the user.
