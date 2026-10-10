@@ -237,3 +237,27 @@ def test_handoff_needs_its_arguments(world):
         [sys.executable, str(SCRIPT), "--session", "x"], env=world["env"], capture_output=True, text=True
     )
     assert r.returncode == 2 and "--routes" in r.stderr
+
+
+def test_refuses_nix_sync_checkout(world):
+    w = world
+    env = {**w["env"], "HOME": str(w["a"] / "home")}
+    nd = w["a"] / "home/.config/nix-darwin"
+    sh("git", "clone", "-q", URL, str(nd), env=w["env"])
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--session", SESSION, "--transcript", str(w["transcript"]), "--cwd", str(nd)],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 1 and "nix-sync's checkout" in r.stderr and "worktree" in r.stderr
+    # Its worktrees are fine.
+    wt = nd / ".claude/worktrees/x"
+    sh("git", "worktree", "add", "-q", "-b", "x", str(wt), cwd=nd, env=w["env"])
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--session", SESSION, "--transcript", str(w["transcript"]), "--cwd", str(wt)],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
