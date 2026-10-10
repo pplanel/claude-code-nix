@@ -40,6 +40,11 @@ in
         --set DISABLE_AUTOUPDATER 1 \
         --set DISABLE_INSTALLATION_CHECKS 1 \
         --set USE_BUILTIN_RIPGREP 0 \
+        --set-default DISABLE_TELEMETRY 1 \
+        --set-default DISABLE_ERROR_REPORTING 1 \
+        --set-default DISABLE_FEEDBACK_COMMAND 1 \
+        --set-default CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY 1 \
+        --set-default CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC 1 \
         --prefix PATH : ${lib.makeBinPath [procps ripgrep]}
       runHook postInstall
     '';

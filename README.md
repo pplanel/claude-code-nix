@@ -8,7 +8,16 @@ Claude Code's native binary, pinned in nix, and a home-manager module that runs 
 nix build .#claude-code && ./result/bin/claude --version
 ```
 
-`pkgs/claude-code/manifest.json` pins the version: Anthropic's release manifest, cut down to the mac and Linux platforms. The wrapper turns off the auto-updater, so a version only changes when the pin does:
+`pkgs/claude-code/manifest.json` pins the version: Anthropic's release manifest, cut down to the mac and Linux platforms. The wrapper turns off the auto-updater, so a version only changes when the pin does.
+
+The wrapper also sets these to 1. They are only defaults, so any of them can be overridden for a single run:
+- `DISABLE_TELEMETRY`
+- `DISABLE_ERROR_REPORTING`
+- `DISABLE_FEEDBACK_COMMAND`
+- `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
+
+Updating the pin:
 
 ```sh
 pkgs/claude-code/update.sh            # pin the current stable release
