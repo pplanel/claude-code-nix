@@ -16,7 +16,7 @@ self: {
       configDir = mkOption {
         type = types.nullOr types.str;
         default = null;
-        example = "src/pplanel/.claude";
+        example = lib.literalExpression ''"src/''${config.home.username}/.claude"'';
         description = "Config dir relative to $HOME, exported as CLAUDE_CONFIG_DIR. null keeps Claude's default ~/.claude.";
       };
       apiKeyEnv = mkOption {
@@ -83,7 +83,7 @@ in {
         {
           claude = {};
           claude-personal = {
-            configDir = "src/pplanel/.claude";
+            configDir = "src/''${config.home.username}/.claude";
             apiKeyEnv = "CLAUDE_PERSONAL_API_KEY";
             rules.machines = ./machines.md;
           };
