@@ -27,6 +27,14 @@ pkgs/claude-code/update.sh --dry-run  # just show what would change
 
 Then commit `manifest.json`, and bump this input wherever it's used.
 
+### Binary cache
+
+`.github/workflows/publish-cache.yml` builds the package on each push to `main` and pushes it to `ghcr.io/pplanel/claude-code-nix/nix-cache`, using the reusable workflow from [pplanel/nixcache](https://github.com/pplanel/nixcache).
+- **Signing key:** `claude-code-nix-cache-1`. The public half is in `public-key.txt`.
+- **Private half:** the repo secret `NIX_SIGNING_KEY`, with a copy in 1Password (Personal, `claude-code-nix nix cache signing key (claude-code-nix-cache-1)`).
+
+**The GHCR package stays private.** It contains Anthropic's proprietary binary, and making it public would redistribute that binary. A machine that can't reach the cache just downloads the binary from `downloads.claude.ai`, which is what the derivation's `fetchurl` does anyway.
+
 ## Instances
 
 ```nix

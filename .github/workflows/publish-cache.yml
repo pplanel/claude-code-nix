@@ -1,0 +1,27 @@
+name: Publish Binary Cache
+
+# Builds this flake's aarch64-darwin outputs (the pinned claude-code) and pushes
+# the signed NARs to ghcr.io/<owner>/<repo>/nix-cache. The build logic lives
+# once in pplanel/nixcache as a reusable workflow; this is just the thin caller.
+#
+# The cache holds Anthropic's proprietary Claude Code binary, so its GHCR
+# package stays PRIVATE: don't make it public (that would redistribute it).
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["docs/**", "*.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    uses: pplanel/nixcache/.github/workflows/publish-cache.yml@main
+    secrets: inherit
+    # The build only downloads Anthropic's binary and wraps it (no Xcode,
+    # sandbox-friendly), so a GitHub-hosted Apple-Silicon runner (the reusable
+    # workflow's default, macos-15) is enough.
