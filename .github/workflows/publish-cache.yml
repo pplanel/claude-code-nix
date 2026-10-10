@@ -25,3 +25,28 @@ jobs:
     # The build only downloads Anthropic's binary and wraps it (no Xcode,
     # sandbox-friendly), so a GitHub-hosted Apple-Silicon runner (the reusable
     # workflow's default, macos-15) is enough.
+
+  # Fail loudly unless the cache package is private. A public package can't be
+  # made private again; if this fails, delete the package in its settings.
+  # Fails closed: not being able to read the visibility is a failure too.
+  verify-private:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    steps:
+      - name: The nix-cache package must be private
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE: ${{ github.event.repository.name }}%2Fnix-cache
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if ! v=$(gh api "/users/$OWNER/packages/container/$PACKAGE" --jq .visibility); then
+            echo "::error::Couldn't read the visibility of ghcr.io/${{ github.repository }}/nix-cache. Check it by hand; it must be private."
+            exit 1
+          fi
+          echo "ghcr.io/${{ github.repository }}/nix-cache visibility: $v"
+          if [ "$v" != "private" ]; then
+            echo "::error::ghcr.io/${{ github.repository }}/nix-cache is $v. It holds Anthropic's binary and must stay private: delete the package now."
+            exit 1
+          fi
