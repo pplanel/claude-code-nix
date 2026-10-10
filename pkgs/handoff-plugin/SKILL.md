@@ -40,7 +40,7 @@ Set the Bash timeout to 300000 ms. `claude-handoff` comes with this plugin (clau
 4. copies the transcript (paths rewritten to the target's layout) and memory into the target's Claude config;
 5. opens tmux window `work:handoff-<repo>` there, running the target's claude with `--resume`, sends it a "continue autonomously" note, and marks this session handed off. If the target has no tmux running it doesn't start one (a tmux server started over ssh can't reach the local network); it prints the resume command instead.
 
-If the target's checkout has local changes of its own, it stops without touching them. `--dry-run` shows the plan without doing anything.
+It reaches the target over the first ssh route that answers: `<host>.airshell`, `<host>.local`, `<host>` (Tailscale), then any extra aliases. If the target's checkout has local changes of its own, it stops without touching them. `--dry-run` shows the plan without doing anything.
 
 ## 4. Report, then stop
 

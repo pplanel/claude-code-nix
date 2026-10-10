@@ -176,3 +176,13 @@ def test_there_and_project_key():
     assert m.there(Path("/U/src/u/proj/x"), here, dest) == Path("/U/src/proj/x")
     assert m.there(Path("/tmp/x"), here, dest) == Path("/tmp/x")
     assert m.project_key(Path("/U/src/proj/.claude/w")) == "-U-src-proj--claude-w"
+
+
+def test_routes_in_order():
+    m = load()
+    dest = m.Layout("imperium", Path("/U/src"), Path("/U/.claude"), "claude", None, ("m2",))
+    assert dest.ssh_routes == ["imperium.airshell", "imperium.local", "imperium", "m2"]
+    # airshell down: the local network wins; only the cloudflared alias works: it's used.
+    assert m.pick_route(dest.ssh_routes, lambda r: r != "imperium.airshell") == "imperium.local"
+    assert m.pick_route(dest.ssh_routes, lambda r: r == "m2") == "m2"
+    assert m.pick_route(dest.ssh_routes, lambda r: False) is None

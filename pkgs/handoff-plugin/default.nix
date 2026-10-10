@@ -14,7 +14,7 @@
   jq,
   coreutils,
   python3,
-  # { <host> = { src; configDir; command; defaultTarget ? null; }; }, with
+  # { <host> = { src; configDir; command; defaultTarget ? null; extraRoutes ? []; }; }, with
   # absolute src and configDir.
   hosts,
   # Repos are pushed and cloned from github.com/<githubOwner>.
@@ -33,6 +33,7 @@
       (builtins.toJSON (lib.mapAttrs (_: h: {
           inherit (h) src configDir command;
           defaultTarget = h.defaultTarget or null;
+          extraRoutes = h.extraRoutes or [];
         })
         hosts))
       (lib.concatStringsSep " " names)

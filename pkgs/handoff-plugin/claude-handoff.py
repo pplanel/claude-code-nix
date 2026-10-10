@@ -77,13 +77,20 @@ class Layout:
     config: Path
     command: str
     default_target: str | None
+    routes: tuple[str, ...] = ()
+
+    @property
+    def ssh_routes(self) -> list[str]:
+        """How to reach this host, in order: airshell, the local network,
+        then the plain name (Tailscale), then any extra aliases from nix."""
+        return [f"{self.name}.airshell", f"{self.name}.local", self.name, *self.routes]
 
 
 def layout(host: str) -> Layout:
     h = HOSTS.get(host)
     if h is None:
         raise HandoffError(f'unknown host "{host}" (known: {", ".join(sorted(HOSTS))})', 2)
-    return Layout(host, Path(h["src"]), Path(h["configDir"]), h["command"], h.get("defaultTarget"))
+    return Layout(host, Path(h["src"]), Path(h["configDir"]), h["command"], h.get("defaultTarget"), tuple(h.get("extraRoutes") or ()))
 
 
 def this_host() -> str:
@@ -120,34 +127,57 @@ def git(repo: Path, *args: str, check: bool = True) -> str:
     return run(["git", "-C", str(repo), *args], check=check).strip()
 
 
+SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8"]
+
+
+def pick_route(routes: list[str], answers) -> str | None:
+    """The first route for which answers(route) is true."""
+    return next((r for r in routes if answers(r)), None)
+
+
 class Target:
-    """Runs commands and copies files on the target Mac (or locally, in tests)."""
+    """Runs commands and copies files on the target Mac (or locally, in tests),
+    over the first ssh route that answers."""
 
     PATH = "export PATH=/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
 
-    def __init__(self, host: str, dry: bool) -> None:
-        self.host, self.dry = host, dry
+    def __init__(self, dest: Layout, dry: bool) -> None:
+        self.host, self.dry, self.route = dest.name, dry, dest.name
+        if LOCAL:
+            return
+        route = pick_route(dest.ssh_routes, lambda r: subprocess.run(
+            [*SSH, r, "true"], capture_output=True).returncode == 0)
+        if route is None:
+            raise HandoffError(f"can't reach {dest.name} over ssh (tried {', '.join(dest.ssh_routes)})")
+        self.route = route
+        step(f"reach {dest.name} as {route}")
+
+    def _cmd(self, script: str) -> list[str]:
+        return ["sh", "-c", script] if LOCAL else [*SSH, self.route, f"{self.PATH}; {script}"]
 
     def sh(self, script: str, *, stdin: str | None = None, check: bool = True, mutating: bool = True) -> str:
         if self.dry and mutating:
             out.print(f"    [dim](dry run) on {self.host}:[/dim] {script}")
             return ""
-        cmd = ["sh", "-c", script] if LOCAL else [
-            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", self.host, f"{self.PATH}; {script}"]
-        return run(cmd, stdin=stdin, check=check)
+        return run(self._cmd(script), stdin=stdin, check=check)
 
     def ok(self, script: str) -> bool:
-        cmd = ["sh", "-c", script] if LOCAL else [
-            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", self.host, f"{self.PATH}; {script}"]
-        return subprocess.run(cmd, capture_output=True).returncode == 0
+        return subprocess.run(self._cmd(script), capture_output=True).returncode == 0
 
     def url(self, path: Path) -> str:
         """A path on the target, as git push and rsync take it."""
-        return str(path) if LOCAL else f"{self.host}:{path}"
+        return str(path) if LOCAL else f"{self.route}:{path}"
+
+    def push_args(self) -> list[str]:
+        # The same ssh options for git, and git on PATH in the target's
+        # non-login shell.
+        return [] if LOCAL else ["-c", f"core.sshCommand={' '.join(SSH)}"]
 
     def receive_pack(self) -> list[str]:
-        # Over ssh the target's non-login shell may not have git on PATH.
         return [] if LOCAL else [f"--receive-pack={self.PATH}; git-receive-pack"]
+
+    def rsync_args(self) -> list[str]:
+        return [] if LOCAL else ["-e", " ".join(SSH)]
 
 
 def step(msg: str) -> None:
@@ -211,7 +241,7 @@ def move_checkout(co: Checkout, session: str, here: Layout, dest: Layout, tgt: T
     what = co.branch or "the detached HEAD"
     step(f"send {what}" + (" and the uncommitted work" if co.snapshot else "") + f" to {dest.name} (ssh, not GitHub)")
     refspecs = [f"+{co.head}:{ref}/head"] + ([f"+{co.snapshot}:{ref}/snapshot"] if co.snapshot else [])
-    do(dry, ["git", "-C", str(co.top), "push", "-q", "--no-verify", *tgt.receive_pack(), tgt.url(repo_there), *refspecs])
+    do(dry, ["git", *tgt.push_args(), "-C", str(co.top), "push", "-q", "--no-verify", *tgt.receive_pack(), tgt.url(repo_there), *refspecs])
 
     checkout = f"git checkout -q -B {q(co.branch)} {ref}/head" if co.branch else f"git checkout -q --detach {ref}/head"
     if co.is_worktree:
@@ -244,9 +274,9 @@ def copy_session(session: str, transcript: Path, rewrite: tuple[Path, Path] | No
         tgt.sh(f"cat > {q(str(project_there / transcript.name))}", stdin=text)
     project_dir = transcript.parent
     if (project_dir / session).is_dir():
-        do(dry, ["rsync", "-a", f"{project_dir / session}/", tgt.url(project_there / session) + "/"])
+        do(dry, ["rsync", "-a", *tgt.rsync_args(), f"{project_dir / session}/", tgt.url(project_there / session) + "/"])
     if (project_dir / "memory").is_dir():
-        do(dry, ["rsync", "-a", "--update", f"{project_dir / 'memory'}/", tgt.url(project_there / "memory") + "/"])
+        do(dry, ["rsync", "-a", "--update", *tgt.rsync_args(), f"{project_dir / 'memory'}/", tgt.url(project_there / "memory") + "/"])
 
 
 def resume(session: str, cwd_there: Path, window: str, tmux_session: str, note: str,
@@ -288,9 +318,7 @@ def handoff(args: argparse.Namespace) -> None:
     dest = layout(target)
     if dest.name == here.name:
         raise HandoffError(f"already on {dest.name}")
-    tgt = Target(dest.name, dry)
-    if not dry and not tgt.ok("true"):
-        raise HandoffError(f"can't reach {dest.name} over ssh")
+    tgt = Target(dest, dry)
 
     co = find_checkout(cwd, dest.name, dry)
     if co:
