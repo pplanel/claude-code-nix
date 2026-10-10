@@ -32,8 +32,28 @@ self: {
     then {text = v;}
     else {source = toSource v;};
 
+  jsonType = (pkgs.formats.json {}).type;
+
+  # Keys in settings.permissions that are combined rather than replaced.
+  permissionLists = ["allow" "deny" "ask" "additionalDirectories"];
+
+  # Shared settings, then the instance's on top; permission lists combined.
+  mergeSettings = a: b: let
+    pa = a.permissions or {};
+    pb = b.permissions or {};
+    lists = builtins.filter (k: pa ? ${k} || pb ? ${k}) permissionLists;
+  in
+    lib.recursiveUpdate a b
+    // lib.optionalAttrs (pa != {} || pb != {}) {
+      permissions = lib.recursiveUpdate pa pb // lib.genAttrs lists (k: lib.unique ((pa.${k} or []) ++ (pb.${k} or [])));
+    };
+
+  # Merges an instance's managed settings into its settings.json (see the
+  # file; flake check tests it).
+  mergeScript = ./settings-merge.jq;
+
   claudeNix = isShared: {
-    inherit isShared isText fileOf entryType home;
+    inherit isShared isText fileOf entryType home jsonType;
     top = cfg;
     shared = cfg.shared;
     entriesOption = description:
@@ -59,6 +79,7 @@ self: {
     ./instance/skills.nix
     ./instance/agents.nix
     ./instance/commands.nix
+    ./instance/settings.nix
   ];
 
   sharedType = types.submoduleWith {
@@ -123,6 +144,21 @@ in {
         example = "commit and push; nix-sync rebuilds every Mac within 30 minutes";
         description = "How a change to that repo reaches this machine.";
       };
+      permissions = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Add the permission rules nix-managed entries need. Allow Read on the
+          managed folders and on /nix/store, since every path along a symlink
+          must be allowed. Allow Read on `checkout` when it is set. Deny Edit
+          on /nix/**, which also blocks Write.
+        '';
+      };
+      allowCheckoutEdits = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Also allow Edit on `checkout` without a prompt. Claude edits checkout-linked entries at their real path there.";
+      };
     };
     shared = mkOption {
       type = sharedType;
@@ -163,6 +199,33 @@ in {
     (lib.mkIf cfg.enable {
       home.packages = lib.mapAttrsToList wrapper cfg.instances;
       home.file = lib.mkMerge (lib.mapAttrsToList (_: i: i.files) cfg.instances);
+
+      home.activation.claudeCodeNixSettings = lib.hm.dag.entryAfter ["writeBoundary"] (lib.concatStrings (lib.mapAttrsToList (name: i: let
+          dir = "${home}/${i.dir}";
+          managed = pkgs.writeText "claude-code-nix-${name}-settings.json" (builtins.toJSON (mergeSettings cfg.shared.settings i.settings));
+        in ''
+          f=${lib.escapeShellArg "${dir}/settings.json"}
+          prev=${lib.escapeShellArg "${dir}/.claude-code-nix/settings.json"}
+          if [ -L "$f" ]; then
+            warnEcho "claude-code-nix: $f is a symlink, not merging ${name}'s settings into it"
+          elif [ -v DRY_RUN ]; then
+            verboseEcho "claude-code-nix: would merge ${managed} into $f"
+          else
+            mkdir -p "$(dirname "$prev")"
+            [ -s "$f" ] || echo "{}" > "$f"
+            [ -s "$prev" ] || echo "{}" > "$prev"
+            tmp=$(mktemp)
+            if ${lib.getExe pkgs.jq} --slurpfile prev "$prev" --slurpfile new ${managed} -f ${mergeScript} "$f" > "$tmp"; then
+              cat "$tmp" > "$f"
+              cp ${managed} "$prev"
+              chmod 644 "$prev"
+            else
+              warnEcho "claude-code-nix: couldn't merge settings into $f; left it unchanged"
+            fi
+            rm -f "$tmp"
+          fi
+        '')
+        cfg.instances));
     })
   ];
 }

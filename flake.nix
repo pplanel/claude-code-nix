@@ -32,6 +32,10 @@
       home-manager.sharedModules = [self.homeManagerModules.default];
     };
 
+    checks = forAll (pkgs: {
+      settings-merge = pkgs.callPackage ./tests/settings-merge.nix {};
+    });
+
     formatter = forAll (pkgs: pkgs.alejandra);
   };
 }

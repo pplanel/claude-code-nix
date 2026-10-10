@@ -70,6 +70,7 @@ Each kind is a module in `modules/instance/`. An entry can be a path or the text
 | `agents.<name>` | `<configDir>/agents/<name>.md` |
 | `commands.<name>` | `<configDir>/commands/<name>.md` |
 | `memory` | `<configDir>/CLAUDE.md`. Unset by default, so `CLAUDE.md` stays hand-written and `/memory` can edit it. |
+| `settings` | merged into `<configDir>/settings.json` (see below) |
 
 `shared` holds the same options. An instance adds to those entries, overrides one, or drops one by setting it to `null`.
 
@@ -89,13 +90,32 @@ Every instance gets `rules/claude-code-nix.md` and `skills/claude-code-nix/`. Th
 
 Set `checkout` to the absolute path of a checkout of the consuming flake, for example `~/.config/nix-darwin` written out in full. Entries given as paths inside that flake then link to the checkout instead of the nix store, so Claude can edit them and the edit shows up as a diff there. Set it only on machines that have that checkout.
 
+### `settings`
+
+`settings` (in `shared` or per instance) holds keys that are merged into `<configDir>/settings.json` on activation. The merge is `modules/settings-merge.jq`, and `nix flake check` tests it.
+
+The file is never linked, so Claude, `/config` and permission prompts can still write to it. How the merge treats it:
+- **Keys nix sets win over hand edits** on every activation.
+- **The permission lists** (`allow`, `deny`, `ask`, `additionalDirectories`) are combined with what's there, with no duplicates.
+- **Anything nix set last time and no longer sets is taken back out.** The previous set is kept in `<configDir>/.claude-code-nix/settings.json`.
+- **Everything else is left alone.**
+
 ### Symlinks and permissions
 
-See <https://code.claude.com/docs/en/permissions#symlinks>. Claude Code checks both a symlink and the file it points to:
-- **Reading a managed file with the Read tool prompts,** because it resolves into `/nix/store`, outside the working directory. Loading rules and skills at startup isn't affected.
-- **Edit and Write refuse to write to a path that is itself a symlink.** Checkout-linked files are therefore edited at their real path (`readlink -f`), which is outside the working directory and so prompts too.
+Claude Code checks a symlink and every path it resolves through; see <https://code.claude.com/docs/en/permissions#symlinks>. A test with real sessions showed:
+- **A Read through a link is allowed only when every path on the chain is allowed:** the link, home-manager's middle hop, and the target. Separate rules are fine. Here the hop and the target are both in `/nix/store`.
+- **A write through a link whose target is outside the working directories counts as sensitive,** and no allow rule approves it. Edit and Write also refuse a path that is itself a symlink. So checkout-linked entries are edited at their real path (`readlink -f`), where `Edit(<checkout>/**)` does apply.
+- **A deny on `Edit(...)` also blocks Write,** and deny wins over allow.
 
-Allow rules for `/nix/store` reads and checkout edits belong in the upcoming `settings` option.
+So `selfManagement.permissions`, on by default, adds these to every instance's settings:
+
+| Rule | Why |
+|---|---|
+| allow `Read(<configDir>/{rules,skills,agents,commands}/**)` | the link side of managed entries |
+| allow `Read(//nix/store/**)` | the hop and the target |
+| allow `Read(<checkout>/**)` | when `checkout` is set |
+| allow `Edit(<checkout>/**)` | only with `selfManagement.allowCheckoutEdits = true` |
+| deny `Edit(//nix/**)` | nothing writes under `/nix` |
 
 ### Layout
 

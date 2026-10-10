@@ -26,7 +26,8 @@ in ''
     then " Applying: ${apply}."
     else ""
   }
-  - **Everything else in the config dir is ordinary and writable.** That covers `settings.json`, a `CLAUDE.md` that isn't a symlink, hand-made rules and skills, `projects/` and memory.
+  - **Never write under `/nix`.** Settings deny `Edit(//nix/**)`.
+  - **Everything else in the config dir is ordinary and writable.** That covers a `CLAUDE.md` that isn't a symlink, hand-made rules and skills, `projects/` and memory. `settings.json` is writable too, but keys nix sets in it come back on every rebuild.
   - **This build sets telemetry, error reporting, the feedback command and survey, and nonessential traffic off by default.**
   - **To change this setup, use the `claude-code-nix` skill.** That covers adding a rule, skill, agent or command, and bumping the version.
 ''

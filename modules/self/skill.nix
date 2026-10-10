@@ -32,7 +32,7 @@ in ''
   Run `ls -l ${dir}/rules ${dir}/skills ${dir}/agents ${dir}/commands ${dir}/CLAUDE.md`, and `readlink -f` an entry to see where it really leads. Home-manager links go through `/nix/store/…-hm_*` first.
   - Entries that resolve into `/nix/store` belong to nix and are read-only.${
     if checkout != null
-    then "\n  - Entries that resolve into `${checkout}` are nix-defined but editable. Edit the real path that `readlink -f` gives, because Edit and Write refuse to write through a symlink. That path is outside the working directory, so expect a permission prompt. The edit is a change to that repo, so commit it."
+    then "\n  - Entries that resolve into `${checkout}` are nix-defined but editable. Edit the real path that `readlink -f` gives, because Edit and Write refuse to write through a symlink. That prompts for permission unless `selfManagement.allowCheckoutEdits` is on. The edit is a change to that repo, so commit it."
     else ""
   }
   - Everything else is hand-made, and nix leaves it alone.
@@ -47,6 +47,13 @@ in ''
   - `rules`, `agents` and `commands`: a path to a `.md` file, or the text itself.
   - `skills`: a path to the skill's folder (`SKILL.md` plus any scripts), or the `SKILL.md` text.
   - `memory`: that instance's `CLAUDE.md`, as a path or text. Leave it unset to keep `CLAUDE.md` hand-written.
+  - `settings`: keys to merge into `settings.json`, which stays a normal, writable file.
+    - Keys nix sets win over hand edits on every rebuild.
+    - The permission lists (`allow`, `deny`, `ask`, `additionalDirectories`) are combined with what's there.
+    - Removing a key from nix takes it back out of `settings.json`.
+    - To change a nix-set key for good, change it in nix. A hand edit only lasts until the next rebuild.
+
+  Nix already allows `Read` on the managed folders and on `/nix/store`, and denies `Edit(//nix/**)`, which also blocks Write. Never write under `/nix`.
 
   Then apply, check the new symlink with `ls -l`, and start a new session. Rules and `CLAUDE.md` load at session start, and `/context` lists them.
 
