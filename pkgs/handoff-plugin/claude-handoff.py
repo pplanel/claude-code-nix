@@ -90,7 +90,14 @@ def layout(host: str) -> Layout:
     h = HOSTS.get(host)
     if h is None:
         raise HandoffError(f'unknown host "{host}" (known: {", ".join(sorted(HOSTS))})', 2)
-    return Layout(host, Path(h["src"]), Path(h["configDir"]), h["command"], h.get("defaultTarget"), tuple(h.get("extraRoutes") or ()))
+    return Layout(
+        host,
+        Path(h["src"]),
+        Path(h["configDir"]),
+        h["command"],
+        h.get("defaultTarget"),
+        tuple(h.get("extraRoutes") or ()),
+    )
 
 
 def this_host() -> str:
@@ -139,14 +146,17 @@ class Target:
     """Runs commands and copies files on the target Mac (or locally, in tests),
     over the first ssh route that answers."""
 
-    PATH = "export PATH=/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+    PATH = (
+        "export PATH=/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+    )
 
     def __init__(self, dest: Layout, dry: bool) -> None:
         self.host, self.dry, self.route = dest.name, dry, dest.name
         if LOCAL:
             return
-        route = pick_route(dest.ssh_routes, lambda r: subprocess.run(
-            [*SSH, r, "true"], capture_output=True).returncode == 0)
+        route = pick_route(
+            dest.ssh_routes, lambda r: subprocess.run([*SSH, r, "true"], capture_output=True).returncode == 0
+        )
         if route is None:
             raise HandoffError(f"can't reach {dest.name} over ssh (tried {', '.join(dest.ssh_routes)})")
         self.route = route
@@ -216,7 +226,9 @@ def find_checkout(cwd: Path, target: str, dry: bool) -> Checkout | None:
     # The URL as configured: `remote get-url` would apply url.insteadOf.
     url = git(repo, "config", "--get", "remote.origin.url", check=False)
     if not re.search(rf"github\.com[:/]{re.escape(OWNER)}/", url):
-        raise HandoffError(f"{repo}'s origin ({url or 'none'}) isn't a github.com/{OWNER} repo; {target} couldn't clone it")
+        raise HandoffError(
+            f"{repo}'s origin ({url or 'none'}) isn't a github.com/{OWNER} repo; {target} couldn't clone it"
+        )
     untracked = [f for f in git(top, "ls-files", "--others", "--exclude-standard").splitlines() if f]
     snapshot = ""
     if not dry:
@@ -227,7 +239,9 @@ def find_checkout(cwd: Path, target: str, dry: bool) -> Checkout | None:
             snapshot = git(top, "stash", "create", "handoff snapshot")
         finally:
             git(top, "reset", "-q")
-    return Checkout(top, repo, url, git(top, "branch", "--show-current"), git(top, "rev-parse", "HEAD"), snapshot, untracked)
+    return Checkout(
+        top, repo, url, git(top, "branch", "--show-current"), git(top, "rev-parse", "HEAD"), snapshot, untracked
+    )
 
 
 def move_checkout(co: Checkout, session: str, here: Layout, dest: Layout, tgt: Target, dry: bool) -> Path:
@@ -236,71 +250,132 @@ def move_checkout(co: Checkout, session: str, here: Layout, dest: Layout, tgt: T
     ref = f"refs/handoff/{session}"
 
     step(f"make sure {dest.name} has {repo_there}")
-    tgt.sh(f"[ -e {q(str(repo_there))}/.git ] || {{ mkdir -p {q(str(repo_there.parent))} && git clone -q {q(co.url)} {q(str(repo_there))}; }}")
+    tgt.sh(
+        f"[ -e {q(str(repo_there))}/.git ] || {{ mkdir -p {q(str(repo_there.parent))} && git clone -q {q(co.url)} {q(str(repo_there))}; }}"
+    )
 
     what = co.branch or "the detached HEAD"
     step(f"send {what}" + (" and the uncommitted work" if co.snapshot else "") + f" to {dest.name} (ssh, not GitHub)")
     refspecs = [f"+{co.head}:{ref}/head"] + ([f"+{co.snapshot}:{ref}/snapshot"] if co.snapshot else [])
-    do(dry, ["git", *tgt.push_args(), "-C", str(co.top), "push", "-q", "--no-verify", *tgt.receive_pack(), tgt.url(repo_there), *refspecs])
+    do(
+        dry,
+        [
+            "git",
+            *tgt.push_args(),
+            "-C",
+            str(co.top),
+            "push",
+            "-q",
+            "--no-verify",
+            *tgt.receive_pack(),
+            tgt.url(repo_there),
+            *refspecs,
+        ],
+    )
 
     checkout = f"git checkout -q -B {q(co.branch)} {ref}/head" if co.branch else f"git checkout -q --detach {ref}/head"
     if co.is_worktree:
-        enter = (f"if [ -e {q(str(top_there))} ]; then cd {q(str(top_there))}; "
-                 f"else git worktree add -q --detach {q(str(top_there))} {ref}/head && cd {q(str(top_there))}; fi")
+        enter = (
+            f"if [ -e {q(str(top_there))} ]; then cd {q(str(top_there))}; "
+            f"else git worktree add -q --detach {q(str(top_there))} {ref}/head && cd {q(str(top_there))}; fi"
+        )
     else:
         enter = f"cd {q(str(top_there))}"
-    step(f"check out {what} in {top_there} on {dest.name}" + (", then restore the uncommitted work" if co.snapshot else ""))
-    tgt.sh("set -e\n"
-           f"cd {q(str(repo_there))}\n"
-           f"{enter}\n"
-           f'if [ -n "$(git status --porcelain)" ]; then echo {q(f"{top_there} has local changes on {dest.name}; not touching it")} >&2; exit 1; fi\n'
-           f"{checkout}\n"
-           + (f"git stash apply -q {ref}/snapshot\ngit reset -q\n" if co.snapshot else "")
-           + f"git update-ref -d {ref}/head\n"
-           + (f"git update-ref -d {ref}/snapshot\n" if co.snapshot else ""))
+    step(
+        f"check out {what} in {top_there} on {dest.name}"
+        + (", then restore the uncommitted work" if co.snapshot else "")
+    )
+    tgt.sh(
+        "set -e\n"
+        f"cd {q(str(repo_there))}\n"
+        f"{enter}\n"
+        f'if [ -n "$(git status --porcelain)" ]; then echo {q(f"{top_there} has local changes on {dest.name}; not touching it")} >&2; exit 1; fi\n'
+        f"{checkout}\n"
+        + (f"git stash apply -q {ref}/snapshot\ngit reset -q\n" if co.snapshot else "")
+        + f"git update-ref -d {ref}/head\n"
+        + (f"git update-ref -d {ref}/snapshot\n" if co.snapshot else "")
+    )
     return top_there
 
 
-def copy_session(session: str, transcript: Path, rewrite: tuple[Path, Path] | None, project_there: Path,
-                 dest: Layout, tgt: Target, dry: bool) -> None:
+def copy_session(
+    session: str,
+    transcript: Path,
+    rewrite: tuple[Path, Path] | None,
+    project_there: Path,
+    dest: Layout,
+    tgt: Target,
+    dry: bool,
+) -> None:
     step(f"copy session {session} and memory to {dest.name}:{project_there}")
     tgt.sh(f"mkdir -p {q(str(project_there))}")
     text = transcript.read_text(encoding="utf-8")
     if rewrite and rewrite[0] != rewrite[1]:
         text = text.replace(str(rewrite[0]), str(rewrite[1]))
     if dry:
-        out.print(f"    [dim](dry run)[/dim] write {project_there / transcript.name}" + (f" ({rewrite[0]} → {rewrite[1]})" if rewrite else ""))
+        out.print(
+            f"    [dim](dry run)[/dim] write {project_there / transcript.name}"
+            + (f" ({rewrite[0]} → {rewrite[1]})" if rewrite else "")
+        )
     else:
         tgt.sh(f"cat > {q(str(project_there / transcript.name))}", stdin=text)
     project_dir = transcript.parent
     if (project_dir / session).is_dir():
         do(dry, ["rsync", "-a", *tgt.rsync_args(), f"{project_dir / session}/", tgt.url(project_there / session) + "/"])
     if (project_dir / "memory").is_dir():
-        do(dry, ["rsync", "-a", "--update", *tgt.rsync_args(), f"{project_dir / 'memory'}/", tgt.url(project_there / "memory") + "/"])
+        do(
+            dry,
+            [
+                "rsync",
+                "-a",
+                "--update",
+                *tgt.rsync_args(),
+                f"{project_dir / 'memory'}/",
+                tgt.url(project_there / "memory") + "/",
+            ],
+        )
 
 
-def resume(session: str, cwd_there: Path, window: str, tmux_session: str, note: str,
-           dest: Layout, tgt: Target, use_tmux: bool, dry: bool) -> bool:
+def resume(
+    session: str,
+    cwd_there: Path,
+    window: str,
+    tmux_session: str,
+    note: str,
+    dest: Layout,
+    tgt: Target,
+    use_tmux: bool,
+    dry: bool,
+) -> bool:
     """Resumes the session in tmux on the target; False when it couldn't."""
     if not use_tmux:
         return False
     if not dry and not tgt.ok("tmux list-sessions"):
-        err.print(f"[yellow]{dest.name} has no tmux running.[/yellow] A tmux server started over ssh couldn't reach the local network, so none was started.")
+        err.print(
+            f"[yellow]{dest.name} has no tmux running.[/yellow] A tmux server started over ssh couldn't reach the local network, so none was started."
+        )
         return False
     step(f"resume it on {dest.name} in tmux window {tmux_session}:{window} ({dest.command})")
     start = f"zsh -lc {q(f'{dest.command} --resume {session}; exec zsh -l')}"
-    tgt.sh(f"tmux has-session -t {q(tmux_session)} 2>/dev/null || tmux new-session -d -s {q(tmux_session)}\n"
-           f"tmux new-window -d -t {q(tmux_session)} -n {q(window)} -c {q(str(cwd_there))} {q(start)}")
+    tgt.sh(
+        f"tmux has-session -t {q(tmux_session)} 2>/dev/null || tmux new-session -d -s {q(tmux_session)}\n"
+        f"tmux new-window -d -t {q(tmux_session)} -n {q(window)} -c {q(str(cwd_there))} {q(start)}"
+    )
     if dry:
         out.print(f"    [dim](dry run)[/dim] wait for its prompt, then send: {note}")
         return True
     pane = q(f"{tmux_session}:{window}")
     for _ in range(30):
         if "❯" in tgt.sh(f"tmux capture-pane -p -t {pane}", check=False, mutating=False):
-            tgt.sh(f"tmux load-buffer -b handoff - && tmux paste-buffer -p -d -b handoff -t {pane} && sleep 1 && tmux send-keys -t {pane} Enter", stdin=note)
+            tgt.sh(
+                f"tmux load-buffer -b handoff - && tmux paste-buffer -p -d -b handoff -t {pane} && sleep 1 && tmux send-keys -t {pane} Enter",
+                stdin=note,
+            )
             return True
         time.sleep(2)
-    err.print(f"[yellow]warning:[/yellow] {tmux_session}:{window} didn't show a prompt within 60 s; the note wasn't sent")
+    err.print(
+        f"[yellow]warning:[/yellow] {tmux_session}:{window} didn't show a prompt within 60 s; the note wasn't sent"
+    )
     return True
 
 
@@ -339,8 +414,11 @@ def handoff(args: argparse.Namespace) -> None:
     window = args.tmux_window or f"handoff-{name}"
     note = f"Resumed on {dest.name} after a handoff from {here.name}."
     if co:
-        note += (f" The checkout is at {cwd_there}, on " + (f"branch {co.branch}" if co.branch else "a detached HEAD")
-                 + ", with the uncommitted work restored as it was; nothing was committed or pushed to GitHub.")
+        note += (
+            f" The checkout is at {cwd_there}, on "
+            + (f"branch {co.branch}" if co.branch else "a detached HEAD")
+            + ", with the uncommitted work restored as it was; nothing was committed or pushed to GitHub."
+        )
     note += " Continue autonomously from where the conversation stopped: commit and push after each step, open or update a draft PR when it makes sense, never merge."
     resumed = resume(session, cwd_there, window, args.tmux_session, note, dest, tgt, not args.no_tmux, dry)
 
@@ -356,11 +434,17 @@ def handoff(args: argparse.Namespace) -> None:
     else:
         step(f"handed off; on {dest.name}, run: cd {q(str(cwd_there))} && {dest.command} --resume {session}")
     if co and co.untracked:
-        out.print(f"untracked files copied ({len(co.untracked)}): " + " ".join(co.untracked[:10]) + (" …" if len(co.untracked) > 10 else ""))
+        out.print(
+            f"untracked files copied ({len(co.untracked)}): "
+            + " ".join(co.untracked[:10])
+            + (" …" if len(co.untracked) > 10 else "")
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="claude-handoff", description="Move this Claude Code session to another Mac and resume it there.")
+    p = argparse.ArgumentParser(
+        prog="claude-handoff", description="Move this Claude Code session to another Mac and resume it there."
+    )
     p.add_argument("--session", required=True)
     p.add_argument("--transcript", required=True, type=Path)
     p.add_argument("--cwd", required=True, type=Path)

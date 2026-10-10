@@ -37,16 +37,30 @@ def world(tmp_path):
     """Two hosts: alpha (sources in a/src/u, like arrakis) and beta (b/src)."""
     a, b = tmp_path / "a", tmp_path / "b"
     hosts = {
-        "alpha": {"src": str(a / "src/u"), "configDir": str(a / "cfg"), "command": "claude-personal", "defaultTarget": "beta"},
+        "alpha": {
+            "src": str(a / "src/u"),
+            "configDir": str(a / "cfg"),
+            "command": "claude-personal",
+            "defaultTarget": "beta",
+        },
         "beta": {"src": str(b / "src"), "configDir": str(b / "cfg"), "command": "claude", "defaultTarget": None},
     }
     origin = tmp_path / "github/proj.git"
     gitconfig = tmp_path / "gitconfig"
-    gitconfig.write_text(f'[url "{origin}"]\n\tinsteadOf = {URL}\n[user]\n\tname = t\n\temail = t@t\n'
-                         "[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n")
-    env = {**os.environ, "GIT_CONFIG_GLOBAL": str(gitconfig), "GIT_CONFIG_NOSYSTEM": "1",
-           "CLAUDE_HANDOFF_LOCAL": "1", "CLAUDE_HANDOFF_HOST": "alpha", "CLAUDE_HANDOFF_OWNER": "someone",
-           "CLAUDE_HANDOFF_HOSTS": json.dumps(hosts), "CLAUDE_CONFIG_DIR": str(a / "cfg")}
+    gitconfig.write_text(
+        f'[url "{origin}"]\n\tinsteadOf = {URL}\n[user]\n\tname = t\n\temail = t@t\n'
+        "[init]\n\tdefaultBranch = main\n[commit]\n\tgpgsign = false\n"
+    )
+    env = {
+        **os.environ,
+        "GIT_CONFIG_GLOBAL": str(gitconfig),
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "CLAUDE_HANDOFF_LOCAL": "1",
+        "CLAUDE_HANDOFF_HOST": "alpha",
+        "CLAUDE_HANDOFF_OWNER": "someone",
+        "CLAUDE_HANDOFF_HOSTS": json.dumps(hosts),
+        "CLAUDE_CONFIG_DIR": str(a / "cfg"),
+    }
 
     sh("git", "init", "-q", "--bare", str(origin), env=env)
     repo = a / "src/u/proj"
@@ -77,9 +91,23 @@ def world(tmp_path):
 
 
 def handoff(w, *extra, cwd=None):
-    return subprocess.run([sys.executable, str(SCRIPT), "--session", SESSION, "--transcript", str(w["transcript"]),
-                           "--cwd", str(cwd or w["wt"] / "sub"), "--no-tmux", *extra],
-                          env=w["env"], capture_output=True, text=True)
+    return subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--session",
+            SESSION,
+            "--transcript",
+            str(w["transcript"]),
+            "--cwd",
+            str(cwd or w["wt"] / "sub"),
+            "--no-tmux",
+            *extra,
+        ],
+        env=w["env"],
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_moves_worktree_with_uncommitted_work(world):
@@ -103,7 +131,10 @@ def test_moves_worktree_with_uncommitted_work(world):
     assert sh("git", "rev-parse", "HEAD", cwd=w["wt"]) == head_before
     assert sh("git", "status", "--porcelain", cwd=w["wt"]) == status_before
     assert sh("git", "stash", "list", cwd=w["wt"]) == ""
-    assert sh("git", "branch", "--list", cwd=w["origin"]) == "main" or sh("git", "for-each-ref", "--format=%(refname)", "refs/heads", cwd=w["origin"]) == "refs/heads/main"
+    assert (
+        sh("git", "branch", "--list", cwd=w["origin"]) == "main"
+        or sh("git", "for-each-ref", "--format=%(refname)", "refs/heads", cwd=w["origin"]) == "refs/heads/main"
+    )
 
     # The session, with paths in the target's layout.
     project_there = w["b"] / "cfg/projects" / str(wt_there / "sub").replace("/", "-").replace(".", "-")

@@ -1,7 +1,6 @@
 # Builds the handoff plugin for three example hosts and checks its layout, the
 # quota hook's answers and Claude Code's own plugin validation.
 {
-  lib,
   runCommand,
   callPackage,
   jq,
