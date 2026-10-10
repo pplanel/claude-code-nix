@@ -9,7 +9,7 @@
 """Move a Claude Code session from this Mac to another and resume it there.
 
     claude-handoff --session ID --transcript PATH --cwd DIR [--target HOST]
-                   [--no-tmux] [--tmux-session NAME] [--tmux-window NAME] [--dry-run]
+                   [--tmux] [--tmux-session NAME] [--tmux-window NAME] [--dry-run]
 
 1. Snapshot: the repo's uncommitted work, untracked files included (ignored
    ones excluded), becomes a stash commit (`git add -A`, `git stash create`,
@@ -24,9 +24,10 @@
    cloned from origin first if the target doesn't have it.
 4. The transcript (paths rewritten to the target's layout), its subagent
    folder and the project's memory are copied into the target's Claude config.
-5. The session resumes in a new window of the target's tmux. A tmux server is
-   never started over ssh (it couldn't reach the local network); without one,
-   the resume command is printed instead.
+5. On the target, a marker says a session waits in that folder: cd there and
+   the zsh hook says so; handoff-resume resumes it. With --tmux it resumes in
+   a new window of the target's tmux instead (never starting a tmux server
+   over ssh: it couldn't reach the local network).
 6. This session is marked handed off, so the quota hook stops asking.
 
 Part of the handoff plugin (claude-code-nix). The hosts are filled in by nix.
@@ -58,6 +59,9 @@ TMUX_SESSION = "work"
 # Tests: CLAUDE_HANDOFF_LOCAL=1 runs the "remote" side locally (no ssh) and
 # CLAUDE_HANDOFF_HOST pretends to be that host.
 LOCAL = os.environ.get("CLAUDE_HANDOFF_LOCAL") == "1"
+# Where the target keeps markers for sessions waiting to be resumed by hand
+# (handoff-resume and the zsh hook read them); CLAUDE_HANDOFF_STATE in tests.
+STATE = os.environ.get("CLAUDE_HANDOFF_STATE")
 
 out = Console(highlight=False, soft_wrap=True)
 err = Console(stderr=True, highlight=False, soft_wrap=True)
@@ -336,6 +340,17 @@ def copy_session(
         )
 
 
+def leave_marker(session: str, cwd_there: Path, here: Layout, dest: Layout, tgt: Target, dry: bool) -> None:
+    """Tells the target a session waits in cwd_there: on cd there, the zsh hook
+    says so, and handoff-resume resumes it."""
+    state = q(STATE) if STATE else '"$HOME/.local/state/claude-handoff"'
+    marker = json.dumps(
+        {"dir": str(cwd_there), "session": session, "command": dest.command, "from": here.name, "at": int(time.time())}
+    )
+    step(f"leave a marker on {dest.name}: cd {cwd_there}, then handoff-resume")
+    tgt.sh(f"mkdir -p {state} && cat > {state}/{q(project_key(cwd_there) + '.json')}", stdin=marker + "\n")
+
+
 def resume(
     session: str,
     cwd_there: Path,
@@ -420,7 +435,9 @@ def handoff(args: argparse.Namespace) -> None:
             + ", with the uncommitted work restored as it was; nothing was committed or pushed to GitHub."
         )
     note += " Continue autonomously from where the conversation stopped: commit and push after each step, open or update a draft PR when it makes sense, never merge."
-    resumed = resume(session, cwd_there, window, args.tmux_session, note, dest, tgt, not args.no_tmux, dry)
+    resumed = resume(session, cwd_there, window, args.tmux_session, note, dest, tgt, args.tmux, dry)
+    if not resumed:
+        leave_marker(session, cwd_there, here, dest, tgt, dry)
 
     marks = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "quota" / "handed-off"
     if dry:
@@ -432,7 +449,10 @@ def handoff(args: argparse.Namespace) -> None:
     if resumed:
         step(f"handed off: continue in {dest.name}'s tmux window {args.tmux_session}:{window}")
     else:
-        step(f"handed off; on {dest.name}, run: cd {q(str(cwd_there))} && {dest.command} --resume {session}")
+        step(
+            f"handed off; on {dest.name}: cd {q(str(cwd_there))} && handoff-resume"
+            f" (or {dest.command} --resume {session})"
+        )
     if co and co.untracked:
         out.print(
             f"untracked files copied ({len(co.untracked)}): "
@@ -449,7 +469,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--transcript", required=True, type=Path)
     p.add_argument("--cwd", required=True, type=Path)
     p.add_argument("--target", help="host to move to (default: this Mac's default target)")
-    p.add_argument("--no-tmux", action="store_true", help="don't resume in tmux; print the resume command")
+    p.add_argument(
+        "--tmux",
+        action="store_true",
+        help="also resume it in a window of the target's running tmux (default: leave a marker for handoff-resume)",
+    )
     p.add_argument("--tmux-session", default=TMUX_SESSION)
     p.add_argument("--tmux-window", help="window name (default: handoff-<repo>)")
     p.add_argument("--dry-run", action="store_true", help="show the plan without changing anything")

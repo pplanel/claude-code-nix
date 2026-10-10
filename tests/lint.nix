@@ -36,7 +36,7 @@ in
     statix check -o errfmt .
     deadnix --fail .
     shellcheck --severity=warning \
-      ${plugin}/scripts/quota-check.sh ${plugin}/scripts/statusline.sh pkgs/claude-code/update.sh
+      ${plugin}/scripts/quota-check.sh ${plugin}/scripts/statusline.sh ${plugin}/bin/handoff-resume pkgs/claude-code/update.sh
     set +x
     touch $out
   ''

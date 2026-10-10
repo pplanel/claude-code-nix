@@ -7,6 +7,7 @@
   git,
   rsync,
   python3,
+  zsh,
   claude-code,
 }: let
   pytest = python3.withPackages (ps: [ps.pytest ps.rich]);
@@ -33,7 +34,7 @@
     };
   };
 in
-  runCommand "handoff-plugin-test" {nativeBuildInputs = [jq git rsync pytest claude-code];} ''
+  runCommand "handoff-plugin-test" {nativeBuildInputs = [jq git rsync pytest zsh claude-code];} ''
     failed=0
     ok() { echo "ok   $1"; }
     fail() { echo "FAIL $1"; [ -n "''${2:-}" ] && echo "  $2"; failed=1; }
@@ -94,6 +95,24 @@ in
     res=$(hook beta PostToolBatch ""); [ -z "$res" ] && ok "72% warns once" || fail "72% warns once" "got: $res"
     state 40
     res=$(hook alpha PostToolBatch ""); [ -z "$res" ] && ok "40%: silent" || fail "40%: silent" "got: $res"
+
+    # handoff-resume and the zsh hook, with a marker for a fake claude.
+    export CLAUDE_HANDOFF_STATE=$TMPDIR/state
+    mkdir -p $CLAUDE_HANDOFF_STATE $TMPDIR/w.d/x $TMPDIR/bin
+    printf '#!/bin/sh\necho "fake-claude $*"\n' > $TMPDIR/bin/fake-claude && chmod +x $TMPDIR/bin/fake-claude
+    key=$(printf '%s' "$TMPDIR/w.d/x" | sed 's#[/.]#-#g')
+    jq -n --arg d "$TMPDIR/w.d/x" '{dir: $d, session: "s9", command: "fake-claude", from: "alpha", at: 0}' > $CLAUDE_HANDOFF_STATE/$key.json
+    hint=$(cd $TMPDIR && zsh -fc "source $p/share/claude-handoff/hook.zsh; cd $TMPDIR/w.d/x" 2>&1)
+    case $hint in *"session waiting here"*"from alpha"*) ok "zsh hook says a session waits" ;; *) fail "zsh hook says a session waits" "got: $hint" ;; esac
+    quiet=$(zsh -fc "source $p/share/claude-handoff/hook.zsh; cd $TMPDIR" 2>&1)
+    [ -z "$quiet" ] && ok "zsh hook silent elsewhere" || fail "zsh hook silent elsewhere" "got: $quiet"
+    list=$($p/bin/handoff-resume --list)
+    case $list in *"$TMPDIR/w.d/x"*"from alpha"*) ok "handoff-resume --list" ;; *) fail "handoff-resume --list" "got: $list" ;; esac
+    res=$(cd $TMPDIR/w.d/x && PATH=$TMPDIR/bin:$PATH $p/bin/handoff-resume)
+    [ "$res" = "fake-claude --resume s9" ] && ok "handoff-resume resumes" || fail "handoff-resume resumes" "got: $res"
+    [ ! -e $CLAUDE_HANDOFF_STATE/$key.json ] && ok "handoff-resume removes the marker" || fail "handoff-resume removes the marker"
+    if (cd $TMPDIR && $p/bin/handoff-resume) 2>/dev/null; then fail "handoff-resume with nothing waiting fails"; else ok "handoff-resume with nothing waiting fails"; fi
+    unset CLAUDE_HANDOFF_STATE
 
     # Claude Code's own check of the plugin.
     if res=$(claude plugin validate $p 2>&1); then ok "claude plugin validate"; else fail "claude plugin validate" "$res"; fi

@@ -81,5 +81,15 @@ in {
         refreshInterval = 60;
       };
     });
+
+    # A session handed off to this Mac leaves a marker in its folder: zsh says
+    # so on cd there, and handoff-resume resumes it.
+    home.packages = [
+      (pkgs.runCommand "handoff-resume" {} ''
+        mkdir -p $out/bin
+        ln -s ${plugin}/bin/handoff-resume $out/bin/handoff-resume
+      '')
+    ];
+    programs.zsh.initContent = "source ${plugin}/share/claude-handoff/hook.zsh";
   };
 }
