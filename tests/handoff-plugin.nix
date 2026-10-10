@@ -5,8 +5,12 @@
   runCommand,
   callPackage,
   jq,
+  git,
+  rsync,
+  python3,
   claude-code,
 }: let
+  pytest = python3.withPackages (ps: [ps.pytest ps.rich]);
   plugin = callPackage ../pkgs/handoff-plugin {
     githubOwner = "someone";
     hosts = {
@@ -30,7 +34,7 @@
     };
   };
 in
-  runCommand "handoff-plugin-test" {nativeBuildInputs = [jq claude-code];} ''
+  runCommand "handoff-plugin-test" {nativeBuildInputs = [jq git rsync pytest claude-code];} ''
     failed=0
     ok() { echo "ok   $1"; }
     fail() { echo "FAIL $1"; [ -n "''${2:-}" ] && echo "  $2"; failed=1; }
@@ -48,9 +52,20 @@ in
       cmd=$(jq -r ".hooks.$ev[0].hooks[0].command" $p/hooks/hooks.json)
       [ -x "$cmd" ] && ok "$ev hook runs $cmd" || fail "$ev hook command" "$cmd"
     done
-    grep -q 'alpha) echo "/Users/u/src/u /Users/u/src/u/.claude claude-personal"' $p/bin/claude-handoff && ok "layout() for alpha" || fail "layout() for alpha"
-    grep -q 'alpha) TARGET=gamma' $p/bin/claude-handoff && ok "default target in claude-handoff" || fail "default target in claude-handoff"
-    grep -q 'github.com\[:/\]someone/' $p/bin/claude-handoff && ok "github owner" || fail "github owner"
+    grep -q '"alpha": {"command": "claude-personal", "configDir": "/Users/u/src/u/.claude", "defaultTarget": "gamma", "src": "/Users/u/src/u"}' $p/bin/claude-handoff \
+      || grep -q '"alpha":{"command":"claude-personal","configDir":"/Users/u/src/u/.claude","defaultTarget":"gamma","src":"/Users/u/src/u"}' $p/bin/claude-handoff \
+      && ok "hosts table for alpha" || fail "hosts table for alpha"
+    grep -q 'or "someone"' $p/bin/claude-handoff && ok "github owner" || fail "github owner"
+    head -1 $p/bin/claude-handoff | grep -q '^#!/nix/store/.*python3$' && ok "runs on nix's python" || fail "runs on nix's python"
+    $p/bin/claude-handoff --help >/dev/null && ok "claude-handoff --help" || fail "claude-handoff --help"
+
+    # claude-handoff end to end: its pytest suite against the built script.
+    mkdir pytests && cp ${../pkgs/handoff-plugin/test_claude_handoff.py} pytests/test_claude_handoff.py
+    if HANDOFF_SCRIPT=$p/bin/claude-handoff python3 -m pytest -q -p no:cacheprovider --rootdir pytests pytests > pytest.log 2>&1; then
+      ok "claude-handoff tests ($(tail -1 pytest.log))"
+    else
+      fail "claude-handoff tests" "$(tail -30 pytest.log)"
+    fi
     grep -q 'alpha, beta, gamma' $p/skills/handoff/SKILL.md && ok "skill names the hosts" || fail "skill names the hosts"
 
     # The quota hook, as host alpha (default target gamma) unless QUOTA_HOST says otherwise.
