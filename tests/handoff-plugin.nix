@@ -52,8 +52,8 @@ in
       cmd=$(jq -r ".hooks.$ev[0].hooks[0].command" $p/hooks/hooks.json)
       [ -x "$cmd" ] && ok "$ev hook runs $cmd" || fail "$ev hook command" "$cmd"
     done
-    grep -q '"alpha": {"command": "claude-personal", "configDir": "/Users/u/src/u/.claude", "defaultTarget": "gamma", "src": "/Users/u/src/u"}' $p/bin/claude-handoff \
-      || grep -q '"alpha":{"command":"claude-personal","configDir":"/Users/u/src/u/.claude","defaultTarget":"gamma","src":"/Users/u/src/u"}' $p/bin/claude-handoff \
+    grep -qF '"alpha": {"command": "claude-personal", "configDir": "/Users/u/src/u/.claude", "defaultTarget": "gamma", "extraRoutes": [], "src": "/Users/u/src/u"}' $p/bin/claude-handoff \
+      || grep -qF '"alpha":{"command":"claude-personal","configDir":"/Users/u/src/u/.claude","defaultTarget":"gamma","extraRoutes":[],"src":"/Users/u/src/u"}' $p/bin/claude-handoff \
       && ok "hosts table for alpha" || fail "hosts table for alpha"
     grep -q 'or "someone"' $p/bin/claude-handoff && ok "github owner" || fail "github owner"
     head -1 $p/bin/claude-handoff | grep -q '^#!/nix/store/.*python3$' && ok "runs on nix's python" || fail "runs on nix's python"
