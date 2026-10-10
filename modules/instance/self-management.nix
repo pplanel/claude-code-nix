@@ -8,7 +8,7 @@
   claudeNix,
   ...
 }: let
-  top = claudeNix.top;
+  inherit (claudeNix) top;
   ctx = {
     inherit name;
     dir = "${claudeNix.home}/${config.dir}";

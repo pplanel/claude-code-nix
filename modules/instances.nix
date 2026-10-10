@@ -55,7 +55,7 @@ self: {
   claudeNix = isShared: {
     inherit isShared isText fileOf entryType home jsonType;
     top = cfg;
-    shared = cfg.shared;
+    inherit (cfg) shared;
     entriesOption = description:
       mkOption {
         type = types.attrsOf (types.nullOr entryType);
@@ -204,35 +204,37 @@ in {
         cfg.instances;
     }
     (lib.mkIf cfg.enable {
-      home.packages = lib.mapAttrsToList wrapper cfg.instances;
-      home.file = lib.mkMerge (lib.mapAttrsToList (_: i: i.files) cfg.instances);
+      home = {
+        packages = lib.mapAttrsToList wrapper cfg.instances;
+        file = lib.mkMerge (lib.mapAttrsToList (_: i: i.files) cfg.instances);
 
-      home.activation.claudeCodeNixSettings = lib.hm.dag.entryAfter ["writeBoundary"] (lib.concatStrings (lib.mapAttrsToList (name: i: let
-          dir = "${home}/${i.dir}";
-          managed = pkgs.writeText "claude-code-nix-${name}-settings.json" (builtins.toJSON (mergeSettings cfg.shared.settings i.settings));
-        in ''
-          f=${lib.escapeShellArg "${dir}/settings.json"}
-          prev=${lib.escapeShellArg "${dir}/.claude-code-nix/settings.json"}
-          if [ -L "$f" ]; then
-            warnEcho "claude-code-nix: $f is a symlink, not merging ${name}'s settings into it"
-          elif [ -v DRY_RUN ]; then
-            verboseEcho "claude-code-nix: would merge ${managed} into $f"
-          else
-            mkdir -p "$(dirname "$prev")"
-            [ -s "$f" ] || echo "{}" > "$f"
-            [ -s "$prev" ] || echo "{}" > "$prev"
-            tmp=$(mktemp)
-            if ${lib.getExe pkgs.jq} --slurpfile prev "$prev" --slurpfile new ${managed} -f ${mergeScript} "$f" > "$tmp"; then
-              cat "$tmp" > "$f"
-              cp ${managed} "$prev"
-              chmod 644 "$prev"
+        activation.claudeCodeNixSettings = lib.hm.dag.entryAfter ["writeBoundary"] (lib.concatStrings (lib.mapAttrsToList (name: i: let
+            dir = "${home}/${i.dir}";
+            managed = pkgs.writeText "claude-code-nix-${name}-settings.json" (builtins.toJSON (mergeSettings cfg.shared.settings i.settings));
+          in ''
+            f=${lib.escapeShellArg "${dir}/settings.json"}
+            prev=${lib.escapeShellArg "${dir}/.claude-code-nix/settings.json"}
+            if [ -L "$f" ]; then
+              warnEcho "claude-code-nix: $f is a symlink, not merging ${name}'s settings into it"
+            elif [ -v DRY_RUN ]; then
+              verboseEcho "claude-code-nix: would merge ${managed} into $f"
             else
-              warnEcho "claude-code-nix: couldn't merge settings into $f; left it unchanged"
+              mkdir -p "$(dirname "$prev")"
+              [ -s "$f" ] || echo "{}" > "$f"
+              [ -s "$prev" ] || echo "{}" > "$prev"
+              tmp=$(mktemp)
+              if ${lib.getExe pkgs.jq} --slurpfile prev "$prev" --slurpfile new ${managed} -f ${mergeScript} "$f" > "$tmp"; then
+                cat "$tmp" > "$f"
+                cp ${managed} "$prev"
+                chmod 644 "$prev"
+              else
+                warnEcho "claude-code-nix: couldn't merge settings into $f; left it unchanged"
+              fi
+              rm -f "$tmp"
             fi
-            rm -f "$tmp"
-          fi
-        '')
-        cfg.instances));
+          '')
+          cfg.instances));
+      };
     })
   ];
 }

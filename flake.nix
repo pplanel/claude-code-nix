@@ -37,6 +37,7 @@
       handoff-plugin = pkgs.callPackage ./tests/handoff-plugin.nix {
         claude-code = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
       };
+      lint = pkgs.callPackage ./tests/lint.nix {src = self;};
     });
 
     formatter = forAll (pkgs: pkgs.alejandra);

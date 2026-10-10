@@ -2,7 +2,7 @@
 # resume it there. Built per setup, with the hosts baked in, and loaded with
 # --plugin-dir from the store (instances' `plugins`), never published.
 #   skills/handoff     the procedure Claude follows
-#   bin/claude-handoff on Claude's Bash PATH while the plugin is loaded
+#   bin/claude-handoff on Claude's Bash PATH while the plugin is loaded (Python)
 #   hooks/hooks.json   quota-check on UserPromptSubmit and PostToolBatch
 #   scripts/statusline.sh  saves rate limits for the hook; plugins can't set
 #                      statusLine, so the module points settings.json at
@@ -13,24 +13,33 @@
   writeText,
   jq,
   coreutils,
-  # { <host> = { src; configDir; command; defaultTarget ? null; }; }, with
+  python3,
+  # { <host> = { src; configDir; command; defaultTarget ? null; extraRoutes ? []; }; }, with
   # absolute src and configDir.
   hosts,
   # Repos are pushed and cloned from github.com/<githubOwner>.
   githubOwner,
 }: let
   names = builtins.attrNames hosts;
+  # claude-handoff's interpreter: rich for its output; the rest is stdlib.
+  python = python3.withPackages (ps: [ps.rich]);
   fill = text:
     builtins.replaceStrings
-    ["@JQ@" "@DATE@" "@HOSTS@" "@HOST_LIST@" "@OWNER@" "@TARGETS@\n" "@LAYOUT@\n" "@LAYOUT_TABLE@"]
+    ["@JQ@" "@DATE@" "@PYTHON@" "@HOSTS_JSON@" "@HOSTS@" "@HOST_LIST@" "@OWNER@" "@TARGETS@\n" "@LAYOUT_TABLE@"]
     [
       (lib.getExe jq)
       "${coreutils}/bin/date"
+      "${python}/bin/python3"
+      (builtins.toJSON (lib.mapAttrs (_: h: {
+          inherit (h) src configDir command;
+          defaultTarget = h.defaultTarget or null;
+          extraRoutes = h.extraRoutes or [];
+        })
+        hosts))
       (lib.concatStringsSep " " names)
       (lib.concatStringsSep ", " names)
       githubOwner
       (lib.concatStrings (lib.mapAttrsToList (n: h: lib.optionalString (h.defaultTarget or null != null) "  ${n}) TARGET=${h.defaultTarget} ;;\n") hosts))
-      (lib.concatStrings (lib.mapAttrsToList (n: h: "    ${n}) echo \"${h.src} ${h.configDir} ${h.command}\" ;;\n") hosts))
       (''
           | Host | Sources | Claude config | Command |
           |---|---|---|---|
@@ -70,7 +79,7 @@ in
     cp $hooksPath $out/hooks/hooks.json
     install -m755 ${script "quota-check.sh"} $out/scripts/quota-check.sh
     install -m755 ${script "statusline.sh"} $out/scripts/statusline.sh
-    install -m755 ${script "claude-handoff.sh"} $out/bin/claude-handoff
+    install -m755 ${script "claude-handoff.py"} $out/bin/claude-handoff
     cp ${script "SKILL.md"} $out/skills/handoff/SKILL.md
     # Nothing may be left unfilled.
     if grep -rn '@[A-Z_]*@' $out; then echo "unfilled placeholders" >&2; exit 1; fi

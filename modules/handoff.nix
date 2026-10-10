@@ -12,7 +12,7 @@
 
   plugin = pkgs.callPackage ../pkgs/handoff-plugin {
     inherit (cfg) githubOwner;
-    hosts = lib.mapAttrs (_: h: {inherit (h) src configDir command defaultTarget;}) cfg.hosts;
+    hosts = lib.mapAttrs (_: h: {inherit (h) src configDir command defaultTarget extraRoutes;}) cfg.hosts;
   };
 
   host = types.submodule {
@@ -34,6 +34,16 @@
         type = types.nullOr types.str;
         default = null;
         description = "Where sessions on that host go when the quota hook hands off. null: no automatic handoff from it.";
+      };
+      extraRoutes = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        example = ["m2"];
+        description = ''
+          ssh destinations tried after the default routes to reach that host:
+          <host>.airshell, <host>.local, then <host>. The first that answers
+          is used for the whole handoff. Add aliases such as a cloudflared one.
+        '';
       };
     };
   };
