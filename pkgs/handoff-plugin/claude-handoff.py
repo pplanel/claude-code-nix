@@ -62,6 +62,9 @@ LOCAL = os.environ.get("CLAUDE_HANDOFF_LOCAL") == "1"
 # Where the target keeps markers for sessions waiting to be resumed by hand
 # (handoff-resume and the zsh hook read them); CLAUDE_HANDOFF_STATE in tests.
 STATE = os.environ.get("CLAUDE_HANDOFF_STATE")
+# nix-sync owns this checkout on every Mac (it pulls and rebuilds from it), so
+# handoffs work in its worktrees, never in it.
+NIX_SYNC_CHECKOUT = Path.home() / ".config/nix-darwin"
 
 out = Console(highlight=False, soft_wrap=True)
 err = Console(stderr=True, highlight=False, soft_wrap=True)
@@ -227,6 +230,11 @@ def find_checkout(cwd: Path, target: str, dry: bool) -> Checkout | None:
     top = Path(top_s)
     common = Path(git(top, "rev-parse", "--path-format=absolute", "--git-common-dir"))
     repo = common.parent if common.name == ".git" else top
+    if top == NIX_SYNC_CHECKOUT:
+        raise HandoffError(
+            f"{top} is nix-sync's checkout: a handoff would switch its branch on {target} too. "
+            "Work in a worktree of it instead (git worktree add .claude/worktrees/<name> -b <name>)."
+        )
     # The URL as configured: `remote get-url` would apply url.insteadOf.
     url = git(repo, "config", "--get", "remote.origin.url", check=False)
     if not re.search(rf"github\.com[:/]{re.escape(OWNER)}/", url):

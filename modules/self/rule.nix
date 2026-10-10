@@ -1,12 +1,12 @@
 # The rule every instance gets: short, always loaded.
 {
-  name,
-  dir,
+  instances,
   version,
   repo,
   apply,
   checkout,
 }: let
+  list = builtins.concatStringsSep ", " (map (i: "`${i.command}` (config dir `${i.configDir}`)") instances);
   where =
     if repo != null
     then "in `${repo}`"
@@ -14,7 +14,7 @@
 in ''
   # Claude Code here is managed by nix (claude-code-nix)
 
-  You are Claude Code ${version}, installed by the claude-code-nix flake as the `${name}` command, with config dir `${dir}`.
+  Claude Code ${version} is installed here by the claude-code-nix flake, as: ${list}. You are the one whose config dir is `$CLAUDE_CONFIG_DIR`, or `~/.claude` when that's unset.
 
   - **No self-updates.** The version is pinned, and the auto-updater is off. Don't run `claude update` or install another copy (brew, npm, the install script). The version changes only when the pin is bumped.
   - **Nix-managed files are symlinks.** In `rules/`, `skills/`, `agents/` and `commands/`, and `CLAUDE.md` when it's a symlink, entries that link into `/nix/store` are read-only and get replaced on the next rebuild. Don't edit, delete or replace them in place. Change them ${where}, then apply.${

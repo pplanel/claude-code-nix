@@ -23,7 +23,7 @@ They're in the hook's message in your context: "QUOTA HANDOFF NOW: â€¦ target=â€
 
 ## 2. Leave the note: one message, before running anything
 
-The resumed session reads this conversation, so write a short handoff note to the user as a normal message:
+The resumed session reads this conversation, so write a short handoff note to the user as a normal message. **Always write a fresh one in this turn, from the current state**: never refer to, summarize or reuse an earlier handoff note in the conversation, which is out of date by now.
 - **Why:** quota at N% on this Mac, or the user asked.
 - **In flight:** what you were doing, and what state it's in (builds? tests pass?).
 - **Next step:** the exact thing to do next, and how to verify it.

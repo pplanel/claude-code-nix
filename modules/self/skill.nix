@@ -1,12 +1,12 @@
 # The skill every instance gets: the procedures behind the rule.
 {
-  name,
-  dir,
+  instances,
   version,
   repo,
   apply,
   checkout,
 }: let
+  list = builtins.concatStringsSep ", " (map (i: "`${i.command}` (config dir `${i.configDir}`)") instances);
   repoText =
     if repo != null
     then "`${repo}`"
@@ -23,13 +23,13 @@ in ''
 
   # Changing this Claude Code setup (claude-code-nix)
 
-  - **This instance:** the `${name}` command, config dir `${dir}`, Claude Code ${version}.
+  - **Instances on this machine:** ${list}; Claude Code ${version}. Yours is the one whose config dir is `$CLAUDE_CONFIG_DIR`, or `~/.claude` when that's unset; below, `<config dir>` means that one.
   - **Defined in:** ${repoText}, under `programs.claude-code-nix`.
   - **Applying a change:** ${applyText}.
 
   ## What nix manages
 
-  Run `ls -l ${dir}/rules ${dir}/skills ${dir}/agents ${dir}/commands ${dir}/CLAUDE.md`, and `readlink -f` an entry to see where it really leads. Home-manager links go through `/nix/store/…-hm_*` first.
+  Run `ls -l <config dir>/rules <config dir>/skills <config dir>/agents <config dir>/commands <config dir>/CLAUDE.md`, and `readlink -f` an entry to see where it really leads. Home-manager links go through `/nix/store/…-hm_*` first.
   - Entries that resolve into `/nix/store` belong to nix and are read-only.${
     if checkout != null
     then "\n  - Entries that resolve into `${checkout}` are nix-defined but editable. Edit the real path that `readlink -f` gives, because Edit and Write refuse to write through a symlink. That prompts for permission unless `selfManagement.allowCheckoutEdits` is on. The edit is a change to that repo, so commit it."
@@ -57,7 +57,7 @@ in ''
 
   Then apply, check the new symlink with `ls -l`, and start a new session. Rules and `CLAUDE.md` load at session start, and `/context` lists them.
 
-  If something is only needed on this machine, or only for now, it can be a plain file in `${dir}` instead. Nix leaves non-symlinks alone.
+  If something is only needed on this machine, or only for now, it can be a plain file in `<config dir>` instead. Nix leaves non-symlinks alone.
 
   ## Bump the Claude Code version
 
@@ -66,7 +66,7 @@ in ''
   2. Check the build with `nix build .#claude-code && ./result/bin/claude --version`.
   3. Commit and push.
   4. In ${repoText}, run `nix flake update claude-code-nix`, then apply.
-  5. Check that `${name} --version` prints the new version.
+  5. Check that each command's `--version` prints the new version.
 
   Never update Claude Code any other way.
 ''

@@ -4,14 +4,15 @@
 {
   config,
   lib,
-  name,
   claudeNix,
   ...
 }: let
   inherit (claudeNix) top;
   ctx = {
-    inherit name;
-    dir = "${claudeNix.home}/${config.dir}";
+    # Every instance on this machine, so the rule and skill read the same in
+    # each config dir: one config's rules can load in another's sessions
+    # (~/.claude is an ancestor of the other dirs under $HOME).
+    instances = lib.mapAttrsToList (_: l: {inherit (l) command configDir;}) top.layout;
     version = top.package.version;
     inherit (top.selfManagement) repo apply;
     inherit (top) checkout;
@@ -21,7 +22,7 @@
   # files are edited at their real path, never through the config-dir link
   # (that's under .claude/, which always prompts).
   sm = top.selfManagement;
-  managed = map (kind: "Read(/${ctx.dir}/${kind}/**)") ["rules" "skills" "agents" "commands"];
+  managed = map (kind: "Read(/${claudeNix.home}/${config.dir}/${kind}/**)") ["rules" "skills" "agents" "commands"];
 in {
   config = lib.mkIf sm.enable (lib.mkMerge [
     {
