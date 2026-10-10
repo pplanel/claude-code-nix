@@ -394,6 +394,42 @@ def resume(
     return True
 
 
+def reachable(route: str, timeout: int = 3) -> bool:
+    if LOCAL:
+        return True
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={timeout}", route, "true"]
+    return subprocess.run(cmd, capture_output=True).returncode == 0
+
+
+def routes() -> None:
+    """Every other Mac and the first ssh route that answers it, probed in
+    parallel: what the skill offers the user to pick from."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    here = layout(this_host())
+    others = [layout(h) for h in sorted(HOSTS) if h != here.name]
+
+    def first(dest: Layout) -> str:
+        return pick_route(dest.ssh_routes, reachable) or ""
+
+    with ThreadPoolExecutor(max_workers=max(1, len(others))) as pool:
+        found = list(pool.map(first, others))
+    for dest, route in zip(others, found, strict=True):
+        kind = (
+            "airshell"
+            if route.endswith(".airshell")
+            else "local network"
+            if route.endswith(".local")
+            else "tailscale"
+            if route == dest.name
+            else f"via {route}"
+            if route
+            else "unreachable"
+        )
+        default = " (default)" if dest.name == here.default_target else ""
+        print(f"{dest.name}\t{kind}{default}")
+
+
 def handoff(args: argparse.Namespace) -> None:
     session, transcript, cwd, dry = args.session, args.transcript.resolve(), args.cwd.resolve(), args.dry_run
     if not transcript.is_file():
@@ -465,9 +501,10 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="claude-handoff", description="Move this Claude Code session to another Mac and resume it there."
     )
-    p.add_argument("--session", required=True)
-    p.add_argument("--transcript", required=True, type=Path)
-    p.add_argument("--cwd", required=True, type=Path)
+    p.add_argument("--routes", action="store_true", help="list the other Macs and how each is reachable now, then exit")
+    p.add_argument("--session")
+    p.add_argument("--transcript", type=Path)
+    p.add_argument("--cwd", type=Path)
     p.add_argument("--target", help="host to move to (default: this Mac's default target)")
     p.add_argument(
         "--tmux",
@@ -478,8 +515,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tmux-window", help="window name (default: handoff-<repo>)")
     p.add_argument("--dry-run", action="store_true", help="show the plan without changing anything")
     args = p.parse_args(argv)
+    if not args.routes and not (args.session and args.transcript and args.cwd):
+        p.error("--session, --transcript and --cwd are required (or --routes)")
     try:
-        handoff(args)
+        routes() if args.routes else handoff(args)
         return 0
     except HandoffError as e:
         err.print(f"[bold red]error:[/bold red] {e.message}")

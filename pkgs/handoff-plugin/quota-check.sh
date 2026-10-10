@@ -41,12 +41,17 @@ say() {
     '{hookSpecificOutput: {hookEventName: $event, additionalContext: $text}}'
 }
 
-# `/handoff [host]` typed by the user: give the skill the session it can't see
-# itself, and where to go.
+# `/handoff [host] [tmux]` typed by the user: give the skill the session it
+# can't see itself, and where to go. Without a host, the skill asks the user.
 if [ "$event" = UserPromptSubmit ] && [[ $prompt == /handoff* ]]; then
   read -r _ asked _ <<<"$prompt"
-  target=${asked:-$TARGET}
-  if [ -z "$target" ] || [[ " $HOSTS " != *" $target "* ]] || [ "$target" = "$here" ]; then
+  [ "$asked" = tmux ] && asked=""
+  if [ -z "$asked" ]; then
+    say "Handoff requested by the user without a host. session_id=$session transcript=$transcript cwd=$cwd. Run \`claude-handoff --routes\`, ask the user which Mac with AskUserQuestion (one option per reachable host, labelled \"<host> · <route>\"), then hand off to the one they pick."
+    exit 0
+  fi
+  target=$asked
+  if [[ " $HOSTS " != *" $target "* ]] || [ "$target" = "$here" ]; then
     say "Handoff requested by the user, but \"$target\" isn't another Mac (choose from: ${HOSTS/$here/}). Tell the user; don't hand off."
     exit 0
   fi
