@@ -34,6 +34,9 @@
 
     checks = forAll (pkgs: {
       settings-merge = pkgs.callPackage ./tests/settings-merge.nix {};
+      handoff-plugin = pkgs.callPackage ./tests/handoff-plugin.nix {
+        claude-code = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
+      };
     });
 
     formatter = forAll (pkgs: pkgs.alejandra);

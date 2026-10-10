@@ -1,0 +1,77 @@
+# The handoff plugin: move a Claude Code session to another machine and
+# resume it there. Built per setup, with the hosts baked in, and loaded with
+# --plugin-dir from the store (instances' `plugins`), never published.
+#   skills/handoff     the procedure Claude follows
+#   bin/claude-handoff on Claude's Bash PATH while the plugin is loaded
+#   hooks/hooks.json   quota-check on UserPromptSubmit and PostToolBatch
+#   scripts/statusline.sh  saves rate limits for the hook; plugins can't set
+#                      statusLine, so the module points settings.json at
+#                      "${plugin}/scripts/statusline.sh"
+{
+  lib,
+  runCommand,
+  writeText,
+  jq,
+  coreutils,
+  # { <host> = { src; configDir; command; defaultTarget ? null; }; }, with
+  # absolute src and configDir.
+  hosts,
+  # Repos are pushed and cloned from github.com/<githubOwner>.
+  githubOwner,
+}: let
+  names = builtins.attrNames hosts;
+  fill = text:
+    builtins.replaceStrings
+    ["@JQ@" "@DATE@" "@HOSTS@" "@HOST_LIST@" "@OWNER@" "@TARGETS@\n" "@LAYOUT@\n" "@LAYOUT_TABLE@"]
+    [
+      (lib.getExe jq)
+      "${coreutils}/bin/date"
+      (lib.concatStringsSep " " names)
+      (lib.concatStringsSep ", " names)
+      githubOwner
+      (lib.concatStrings (lib.mapAttrsToList (n: h: lib.optionalString (h.defaultTarget or null != null) "  ${n}) TARGET=${h.defaultTarget} ;;\n") hosts))
+      (lib.concatStrings (lib.mapAttrsToList (n: h: "    ${n}) echo \"${h.src} ${h.configDir} ${h.command}\" ;;\n") hosts))
+      (''
+          | Host | Sources | Claude config | Command |
+          |---|---|---|---|
+        ''
+        + lib.concatStrings (lib.mapAttrsToList (n: h: "| ${n} | `${h.src}` | `${h.configDir}` | `${h.command}` |\n") hosts))
+    ]
+    text;
+  script = name: writeText name (fill (builtins.readFile ./${name}));
+
+  hookCmd = "${placeholder "out"}/scripts/quota-check.sh";
+  hooks = builtins.toJSON {
+    hooks = lib.genAttrs ["UserPromptSubmit" "PostToolBatch"] (_: [
+      {
+        hooks = [
+          {
+            type = "command";
+            command = hookCmd;
+            timeout = 5;
+          }
+        ];
+      }
+    ]);
+  };
+  manifest = builtins.toJSON {
+    name = "handoff";
+    version = "1.0.0";
+    description = "Move a Claude Code session to another of your machines and resume it there; hands off automatically near the plan's usage limit.";
+    author.name = githubOwner;
+  };
+in
+  runCommand "claude-code-handoff-plugin" {
+    passAsFile = ["hooks" "manifest"];
+    inherit hooks manifest;
+  } ''
+    mkdir -p $out/.claude-plugin $out/bin $out/hooks $out/scripts $out/skills/handoff
+    cp $manifestPath $out/.claude-plugin/plugin.json
+    cp $hooksPath $out/hooks/hooks.json
+    install -m755 ${script "quota-check.sh"} $out/scripts/quota-check.sh
+    install -m755 ${script "statusline.sh"} $out/scripts/statusline.sh
+    install -m755 ${script "claude-handoff.sh"} $out/bin/claude-handoff
+    cp ${script "SKILL.md"} $out/skills/handoff/SKILL.md
+    # Nothing may be left unfilled.
+    if grep -rn '@[A-Z_]*@' $out; then echo "unfilled placeholders" >&2; exit 1; fi
+  ''
