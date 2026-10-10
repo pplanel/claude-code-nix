@@ -32,7 +32,6 @@ Then commit `manifest.json`, and bump this input wherever it's used.
 ```nix
 # flake inputs
 claude-code-nix.url = "github:pplanel/claude-code-nix";
-claude-code-nix.inputs.nixpkgs.follows = "nixpkgs";
 
 # nix-darwin modules
 claude-code-nix.darwinModules.default
