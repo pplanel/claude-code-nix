@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Pin manifest.json to Anthropic's current stable release (or latest with
-# --latest). Keeps only the macOS and glibc Linux platforms we can build for.
-# usage: update.sh [--latest] [--dry-run]
+# Pin manifest.json to Anthropic's latest release (or the stable channel with
+# --stable). Keeps only the macOS and glibc Linux platforms we can build for.
+# usage: update.sh [--stable] [--dry-run]
 set -euo pipefail
 
 base=https://downloads.claude.ai/claude-code-releases
-channel=stable dry=0
+channel=latest dry=0
 for arg in "$@"; do
   case $arg in
-    --latest) channel=latest ;;
+    --stable) channel=stable ;;
     --dry-run) dry=1 ;;
-    *) echo "usage: $0 [--latest] [--dry-run]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--stable] [--dry-run]" >&2; exit 2 ;;
   esac
 done
 

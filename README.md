@@ -20,12 +20,12 @@ The wrapper also sets these to 1. They are only defaults, so any of them can be 
 Updating the pin:
 
 ```sh
-pkgs/claude-code/update.sh            # pin the current stable release
-pkgs/claude-code/update.sh --latest   # or the latest one
+pkgs/claude-code/update.sh            # pin the latest release
+pkgs/claude-code/update.sh --stable   # or the stable channel
 pkgs/claude-code/update.sh --dry-run  # just show what would change
 ```
 
-Then commit `manifest.json`, and bump this input wherever it's used.
+`.github/workflows/update.yml` does this daily: it pins the latest release, checks that it builds, commits to `main`, and starts the cache publish. Consumers then bump this input.
 
 ## Instances
 

@@ -62,7 +62,7 @@ in ''
   ## Bump the Claude Code version
 
   The pin lives in the claude-code-nix repo, not in ${repoText}:
-  1. In that repo, run `pkgs/claude-code/update.sh` for the stable release, or add `--latest`. Add `--dry-run` to only compare the versions.
+  1. In that repo, run `pkgs/claude-code/update.sh` for the latest release, or add `--stable` for the stable channel. Add `--dry-run` to only compare the versions. (A daily workflow there already does this on its own.)
   2. Check the build with `nix build .#claude-code && ./result/bin/claude --version`.
   3. Commit and push.
   4. In ${repoText}, run `nix flake update claude-code-nix`, then apply.

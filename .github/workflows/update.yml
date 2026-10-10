@@ -1,0 +1,59 @@
+name: Update Claude Code
+
+# Daily: pin Anthropic's latest Claude Code release, check that it builds, and
+# commit it straight to main. A push made with GITHUB_TOKEN doesn't start
+# other workflows, so this then dispatches the cache publish itself.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: update-claude-code
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pin the latest release
+        id: pin
+        run: |
+          pkgs/claude-code/update.sh
+          if git diff --quiet -- pkgs/claude-code/manifest.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$(jq -r .version pkgs/claude-code/manifest.json)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Nix
+        if: steps.pin.outputs.changed == 'true'
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Check it builds and runs
+        if: steps.pin.outputs.changed == 'true'
+        run: |
+          nix build .#claude-code -L
+          ./result/bin/claude --version | grep -F "${{ steps.pin.outputs.version }}"
+
+      - name: Commit to main
+        if: steps.pin.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore(claude-code): ${{ steps.pin.outputs.version }}" -- pkgs/claude-code/manifest.json
+          git push origin HEAD:main
+
+      - name: Publish the cache
+        if: steps.pin.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run publish-cache.yml --ref main
