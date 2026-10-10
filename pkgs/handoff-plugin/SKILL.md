@@ -1,5 +1,6 @@
 ---
 name: handoff
+argument-hint: "[@HOST_ARGS@] [tmux]"
 description: Move this Claude Code session to another of the user's Macs (@HOST_LIST@) and resume it there, with its whole conversation, on that Mac's Claude account. Use when the user types /handoff [host], or immediately when the context says "QUOTA HANDOFF NOW" (the quota hook, at 80% of the 5-hour or weekly limit). Not for anything else.
 ---
 
@@ -13,7 +14,9 @@ The user decided to **hand off immediately, even if the work is broken**. Don't 
 
 ## 1. Get the details
 
-They're in the hook's message in your context: either "QUOTA HANDOFF NOW: … target=… session_id=… transcript=… cwd=…" or "Handoff requested by the user. target=… session_id=… transcript=… cwd=…". Use those values exactly. `target` is the Mac the user named after `/handoff`, or this Mac's default target.
+They're in the hook's message in your context: "QUOTA HANDOFF NOW: … target=… session_id=… transcript=… cwd=…", "Handoff requested by the user. target=… session_id=… transcript=… cwd=…", or "Handoff requested by the user without a host. session_id=… transcript=… cwd=…". Use those values exactly. `target` is the Mac the user named after `/handoff`, or for the quota handoff this Mac's default target.
+
+- **Without a host** (the user typed a bare `/handoff`): run `claude-handoff --routes`. It prints one line per other Mac: its name, then how it's reachable right now (`airshell`, `local network`, `tailscale`, `via <alias>` or `unreachable`), with `(default)` on this Mac's default target. Ask the user which Mac with AskUserQuestion: one option per reachable host, labelled `<host> · <route>`, the default first. Their pick is `target`.
 
 - If the hook says the named host isn't another Mac, tell the user the valid choices and stop.
 - If the details aren't there (rare: the hook didn't run), ask the user to type `/handoff <host>` again. Don't guess the session from file times.

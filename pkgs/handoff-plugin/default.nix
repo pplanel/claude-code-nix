@@ -27,7 +27,7 @@
   python = python3.withPackages (ps: [ps.rich]);
   fill = text:
     builtins.replaceStrings
-    ["@JQ@" "@DATE@" "@PYTHON@" "@HOSTS_JSON@" "@HOSTS@" "@HOST_LIST@" "@OWNER@" "@TARGETS@\n" "@LAYOUT_TABLE@"]
+    ["@JQ@" "@DATE@" "@PYTHON@" "@HOSTS_JSON@" "@HOSTS@" "@HOST_LIST@" "@HOST_ARGS@" "@OWNER@" "@TARGETS@\n" "@LAYOUT_TABLE@"]
     [
       (lib.getExe jq)
       "${coreutils}/bin/date"
@@ -40,6 +40,7 @@
         hosts))
       (lib.concatStringsSep " " names)
       (lib.concatStringsSep ", " names)
+      (lib.concatStringsSep "|" names)
       githubOwner
       (lib.concatStrings (lib.mapAttrsToList (n: h: lib.optionalString (h.defaultTarget or null != null) "  ${n}) TARGET=${h.defaultTarget} ;;\n") hosts))
       (''

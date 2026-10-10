@@ -222,3 +222,18 @@ def test_routes_in_order():
     assert m.pick_route(dest.ssh_routes, lambda r: r != "imperium.airshell") == "imperium.local"
     assert m.pick_route(dest.ssh_routes, lambda r: r == "m2") == "m2"
     assert m.pick_route(dest.ssh_routes, lambda r: False) is None
+
+
+def test_routes_lists_other_hosts(world):
+    w = world
+    r = subprocess.run([sys.executable, str(SCRIPT), "--routes"], env=w["env"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    # Local mode answers on the first route: airshell. alpha's default target is beta.
+    assert r.stdout == "beta\tairshell (default)\n"
+
+
+def test_handoff_needs_its_arguments(world):
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "--session", "x"], env=world["env"], capture_output=True, text=True
+    )
+    assert r.returncode == 2 and "--routes" in r.stderr

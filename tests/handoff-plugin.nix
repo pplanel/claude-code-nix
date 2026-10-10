@@ -67,6 +67,7 @@ in
       fail "claude-handoff tests" "$(tail -30 pytest.log)"
     fi
     grep -q 'alpha, beta, gamma' $p/skills/handoff/SKILL.md && ok "skill names the hosts" || fail "skill names the hosts"
+    grep -q 'argument-hint: "\[alpha|beta|gamma\] \[tmux\]"' $p/skills/handoff/SKILL.md && ok "skill argument hint" || fail "skill argument hint"
 
     # The quota hook, as host alpha (default target gamma) unless QUOTA_HOST says otherwise.
     export HOME=$TMPDIR CLAUDE_CONFIG_DIR=$TMPDIR/cfg
@@ -83,7 +84,9 @@ in
         '{written_at: $now, rate_limits: {five_hour: {used_percentage: $pct, resets_at: ($now + 3600)}}}' > $TMPDIR/state.json
     }
     expect "/handoff beta from alpha" "$(hook alpha UserPromptSubmit '/handoff beta')" "target=beta session_id=s1"
-    expect "/handoff alone uses the default" "$(hook alpha UserPromptSubmit '/handoff')" "target=gamma"
+    expect "/handoff alone asks which Mac" "$(hook alpha UserPromptSubmit '/handoff')" "without a host. session_id=s1"
+    expect "/handoff tmux asks which Mac" "$(hook alpha UserPromptSubmit '/handoff tmux')" "claude-handoff --routes"
+    expect "/handoff beta tmux keeps the host" "$(hook alpha UserPromptSubmit '/handoff beta tmux')" "target=beta session_id=s1"
     expect "/handoff to itself refused" "$(hook alpha UserPromptSubmit '/handoff alpha')" "isn't another Mac"
     expect "/handoff to unknown refused" "$(hook alpha UserPromptSubmit '/handoff zeta')" "isn't another Mac"
     state 85
