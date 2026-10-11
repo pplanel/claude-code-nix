@@ -1,11 +1,17 @@
 {
   description = "Claude Code's native binary, pinned, plus named per-account instances";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    # programs.claude-code-nix.mesh. Not following nixpkgs, so its build
+    # matches the binary cache claude-mesh's CI publishes.
+    claude-mesh.url = "github:pplanel/claude-mesh";
+  };
 
   outputs = {
     self,
     nixpkgs,
+    ...
   }: let
     systems = ["aarch64-darwin" "aarch64-linux" "x86_64-linux"];
     forAll = f:
