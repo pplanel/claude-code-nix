@@ -1,6 +1,40 @@
 {
   "nodes": {
+    "claude-mesh": {
+      "inputs": {
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1791748296,
+        "narHash": "sha256-BY/EQf1C9uQxksa9P1bBculz6kYvDz/stk0dhg0p2NY=",
+        "owner": "pplanel",
+        "repo": "claude-mesh",
+        "rev": "75af5d709764f09adbe19316408cb6b2fa29777b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "pplanel",
+        "repo": "claude-mesh",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
+      "locked": {
+        "lastModified": 1791487292,
+        "narHash": "sha256-tqM7xDEsaeK1p6VvRygeZ9LkQRpUUkbRT02BHv6hnTM=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "8edc0c72e3a38faf5434e40d1f19431125fe4b30",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
       "locked": {
         "lastModified": 1791366222,
         "narHash": "sha256-o0N4g6uSOIppU7CGToNvGlMf5vC+B6O6ukFHKY/TKOY=",
@@ -18,7 +52,8 @@
     },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs"
+        "claude-mesh": "claude-mesh",
+        "nixpkgs": "nixpkgs_2"
       }
     }
   },

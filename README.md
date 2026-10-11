@@ -145,7 +145,23 @@ What it does:
 - **The quota hook** (`UserPromptSubmit` and `PostToolBatch`) warns at 70% of the 5-hour or weekly limit, and at 80% tells Claude to hand off to `defaultTarget`.
 - **The status line** saves the rate limits that the hook reads. Plugins can't set `statusLine`, so the module sets it in the instance's `settings` instead.
 
-The handoff copies only that one session. Config dirs are never synced between hosts.
+The handoff copies only that one session. To keep whole config dirs in sync, add `mesh` (below).
+
+### Mesh
+
+`mesh` runs [claude-mesh](https://github.com/pplanel/claude-mesh) as a launchd agent. It keeps the config dir that handoffs land in (`handoff.hosts.<host>.configDir`) the same on every host, so `--resume` lists every session from every host, and memory, plans, todos and prompt history are shared:
+
+```nix
+programs.claude-code-nix.mesh.enable = true;   # with handoff.hosts set
+```
+
+What it does:
+- **The hosts come from `handoff.hosts`**, so the mesh and the handoff agree on where each host keeps its sources and its config dir. Paths inside transcripts are rewritten between layouts, as the handoff does.
+- **Peers are reached over [airshell](https://github.com/pplanel/airshell).** `claude-mesh serve` registers its `<host>-claudesync` service with airshell-proxy through its control socket and dials the others with `airshell-connect`. airshell admits only paired Macs (each one's `airshell-connect --print-fingerprint` in the others' `~/.config/airshell/authorized_peers`).
+- **Transcripts merge, they don't overwrite**, and credentials, `settings.json`, plugins and caches never leave a host. Deletions don't propagate.
+- **macOS asks once for Local Network access** when the agent first dials a peer, and again whenever `executable`'s path or signature changes. A system that copies and signs the binary at a stable path sets `mesh.executable` to it.
+
+Options: `package` (claude-mesh's flake by default), `executable`, `airshellConnect` (default `airshell-connect` on the agent's PATH), `interval` (seconds between rounds, default 30). Log: `~/Library/Logs/claude-mesh.log`; `claude-mesh status` shows whether each peer answers.
 
 `nix flake check` builds the plugin for example hosts, tests the hook's answers, and runs `claude plugin validate` on it.
 
