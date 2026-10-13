@@ -89,6 +89,13 @@ in
     expect "/handoff beta tmux keeps the host" "$(hook alpha UserPromptSubmit '/handoff beta tmux')" "target=beta session_id=s1"
     expect "/handoff to itself refused" "$(hook alpha UserPromptSubmit '/handoff alpha')" "isn't another Mac"
     expect "/handoff to unknown refused" "$(hook alpha UserPromptSubmit '/handoff zeta')" "isn't another Mac"
+    # The host tag, on UserPromptSubmit only.
+    tagcmd=$(jq -r '.hooks.UserPromptSubmit[0].hooks[1].command' $p/hooks/hooks.json)
+    [ -x "$tagcmd" ] && ok "host-tag hook runs $tagcmd" || fail "host-tag hook command" "$tagcmd"
+    [ "$(jq '.hooks.PostToolBatch[0].hooks | length' $p/hooks/hooks.json)" = 1 ] && ok "no host tag after tool batches" || fail "no host tag after tool batches"
+    tag() { echo '{}' | HOST_TAG_HOST=$1 $tagcmd | jq -r '.hookSpecificOutput.additionalContext // empty'; }
+    expect "host tag on beta" "$(tag beta)" 'Start your reply with "[beta]: "'
+    res=$(tag elsewhere); [ -z "$res" ] && ok "host tag silent off the hosts" || fail "host tag silent off the hosts" "got: $res"
     state 85
     expect "85% hands off" "$(hook alpha PostToolBatch "")" "QUOTA HANDOFF NOW"
     expect "85% names the target" "$(hook alpha PostToolBatch "")" "target=gamma"
