@@ -96,6 +96,22 @@ in
     tag() { echo '{}' | HOST_TAG_HOST=$1 $tagcmd | jq -r '.hookSpecificOutput.additionalContext // empty'; }
     expect "host tag on beta" "$(tag beta)" 'Start your reply with "[beta]: "'
     res=$(tag elsewhere); [ -z "$res" ] && ok "host tag silent off the hosts" || fail "host tag silent off the hosts" "got: $res"
+    # Identity, on SessionStart: this Mac's self.md and the end of moments.md.
+    idcmd=$(jq -r '.hooks.SessionStart[0].hooks[0].command' $p/hooks/hooks.json)
+    [ -x "$idcmd" ] && ok "identity hook runs $idcmd" || fail "identity hook command" "$idcmd"
+    ident() { echo '{}' | IDENTITY_HOST=$1 $idcmd | jq -r '.hookSpecificOutput.additionalContext // empty'; }
+    res=$(ident beta); [ -z "$res" ] && ok "identity silent without files" || fail "identity silent without files" "got: $res"
+    mkdir -p $CLAUDE_CONFIG_DIR/identity/beta $CLAUDE_CONFIG_DIR/identity/alpha
+    echo "I am beta." > $CLAUDE_CONFIG_DIR/identity/beta/self.md
+    { echo "# moments"; for i in $(seq 1 400); do printf '## day %s\n- something happened on day %s\n' $i $i; done; } > $CLAUDE_CONFIG_DIR/identity/beta/moments.md
+    echo "I am alpha." > $CLAUDE_CONFIG_DIR/identity/alpha/self.md
+    res=$(ident beta)
+    expect "identity gives self.md" "$res" "I am beta."
+    expect "identity gives the latest moment" "$res" "day 400"
+    case $res in *"day 1\n"*|*"## day 1
+"*) fail "identity keeps only recent moments" ;; *) ok "identity keeps only recent moments" ;; esac
+    case $res in *"I am alpha."*) fail "identity is this Mac's only" ;; *) ok "identity is this Mac's only" ;; esac
+    res=$(ident elsewhere); [ -z "$res" ] && ok "identity silent off the hosts" || fail "identity silent off the hosts" "got: $res"
     state 85
     expect "85% hands off" "$(hook alpha PostToolBatch "")" "QUOTA HANDOFF NOW"
     expect "85% names the target" "$(hook alpha PostToolBatch "")" "target=gamma"
