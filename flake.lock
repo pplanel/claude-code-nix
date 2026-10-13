@@ -5,11 +5,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1791860218,
-        "narHash": "sha256-X4wauqgPBBOITwGExBBRKojyE1TwxWfHWxMLV4Mode8=",
+        "lastModified": 1791861785,
+        "narHash": "sha256-dMhMyrAKgvi2TXGJ1jfdLAjCpAECCYXHBa7oGnCY6SA=",
         "owner": "pplanel",
         "repo": "claude-mesh",
-        "rev": "0c3333463e8d9fef0201cd01afcefe2f1c7acf17",
+        "rev": "ae72f61bd194d904267c320ced2db6762aff8a64",
         "type": "github"
       },
       "original": {
