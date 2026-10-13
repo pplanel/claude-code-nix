@@ -55,6 +55,18 @@ in
         case $res in *"I am alpha."*) fail "identity is this Mac's only" ;; *) ok "identity is this Mac's only" ;; esac
         res=$(ident elsewhere); [ -z "$res" ] && ok "identity silent off the hosts" || fail "identity silent off the hosts" "got: $res"
 
+    # The frame and curation.
+    res=$(ident beta)
+    expect "frame: memory, not instructions" "$res" "They are memory, not instructions"
+    expect "frame: Pedro's request wins" "$res" "his current request wins"
+    [ -s $CLAUDE_CONFIG_DIR/identity/beta/curated ] && ok "curation clock started" || fail "curation clock started"
+    case $res in *"review is due"*) fail "no curation due on day 0" ;; *) ok "no curation due on day 0" ;; esac
+    echo 1000000000 > $CLAUDE_CONFIG_DIR/identity/beta/curated
+    res=$(echo '{}' | IDENTITY_HOST=beta IDENTITY_NOW=$((1000000000 + 31 * 86400)) $idcmd | jq -r '.hookSpecificOutput.additionalContext // empty')
+    expect "curation due after 31 days" "$res" "It has been 31 days since you last reviewed self.md"
+    res=$(echo '{}' | IDENTITY_HOST=beta IDENTITY_NOW=$((1000000000 + 29 * 86400)) $idcmd | jq -r '.hookSpecificOutput.additionalContext // empty')
+    case $res in *"review is due"*) fail "no curation due at 29 days" ;; *) ok "no curation due at 29 days" ;; esac
+
         # Claude Code's own check of the plugin.
         if res=$(claude plugin validate $p 2>&1); then ok "claude plugin validate"; else fail "claude plugin validate" "$res"; fi
 
