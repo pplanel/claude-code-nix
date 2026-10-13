@@ -5,7 +5,8 @@
 #   bin/claude-handoff on Claude's Bash PATH while the plugin is loaded (Python)
 #   bin/handoff-resume resumes a session handed off to the current folder
 #   share/claude-handoff/hook.zsh  says so on cd into such a folder
-#   hooks/hooks.json   quota-check on UserPromptSubmit and PostToolBatch
+#   hooks/hooks.json   quota-check on UserPromptSubmit and PostToolBatch;
+#                      host-tag on UserPromptSubmit (replies start "[<host>]:")
 #   scripts/statusline.sh  saves rate limits for the hook; plugins can't set
 #                      statusLine, so the module points settings.json at
 #                      "${plugin}/scripts/statusline.sh"
@@ -52,19 +53,16 @@
     text;
   script = name: writeText name (fill (builtins.readFile ./${name}));
 
-  hookCmd = "${placeholder "out"}/scripts/quota-check.sh";
+  hook = name: {
+    type = "command";
+    command = "${placeholder "out"}/scripts/${name}";
+    timeout = 5;
+  };
   hooks = builtins.toJSON {
-    hooks = lib.genAttrs ["UserPromptSubmit" "PostToolBatch"] (_: [
-      {
-        hooks = [
-          {
-            type = "command";
-            command = hookCmd;
-            timeout = 5;
-          }
-        ];
-      }
-    ]);
+    hooks = {
+      UserPromptSubmit = [{hooks = [(hook "quota-check.sh") (hook "host-tag.sh")];}];
+      PostToolBatch = [{hooks = [(hook "quota-check.sh")];}];
+    };
   };
   manifest = builtins.toJSON {
     name = "handoff";
@@ -81,6 +79,7 @@ in
     cp $manifestPath $out/.claude-plugin/plugin.json
     cp $hooksPath $out/hooks/hooks.json
     install -m755 ${script "quota-check.sh"} $out/scripts/quota-check.sh
+    install -m755 ${script "host-tag.sh"} $out/scripts/host-tag.sh
     install -m755 ${script "statusline.sh"} $out/scripts/statusline.sh
     install -m755 ${script "claude-handoff.py"} $out/bin/claude-handoff
     install -m755 ${script "handoff-resume.sh"} $out/bin/handoff-resume
