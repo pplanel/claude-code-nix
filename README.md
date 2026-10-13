@@ -124,49 +124,54 @@ So `selfManagement.permissions`, on by default, adds these to every instance's s
 - plugins load in place from the read-only store, and show up as `<name>@inline`
 - they load only when Claude is started through that command, not from the desktop app or IDE extensions
 
-### Handoff
+### Hosts
 
-`handoff` builds the handoff plugin (`pkgs/handoff-plugin`) with your hosts in it, and loads it in the instances you list:
+`hosts` lists every machine in the setup, by `hostname -s`, and where each keeps its sources and its personal Claude config dir. The mesh and the identity plugin both take the machines from here, so they agree:
 
 ```nix
-programs.claude-code-nix.handoff = {
-  enable = true;
-  githubOwner = "me";                 # only github.com/me/* repos are handed off
-  instances = ["claude-personal"];    # load the plugin and its status line
-  hosts = {                           # every machine, by `hostname -s`
-    laptop  = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; command = "claude"; defaultTarget = "desktop"; };
-    desktop = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; command = "claude"; defaultTarget = "laptop"; };
-  };
+programs.claude-code-nix.hosts = {
+  laptop  = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; };
+  desktop = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; };
 };
 ```
 
-What it does:
-- **`/handoff [host]`** (the `handoff` skill and `bin/claude-handoff`) moves the current session to another host. It commits and pushes the work on a `handoff/…` branch, checks it out there, copies the transcript and the project's memory into that host's config dir, and resumes the session in tmux (`work:handoff-<repo>`).
-- **The quota hook** (`UserPromptSubmit` and `PostToolBatch`) warns at 70% of the 5-hour or weekly limit, and at 80% tells Claude to hand off to `defaultTarget`.
-- **The status line** saves the rate limits that the hook reads. Plugins can't set `statusLine`, so the module sets it in the instance's `settings` instead.
-
-The handoff copies only that one session. To keep whole config dirs in sync, add `mesh` (below).
-
 ### Mesh
 
-`mesh` runs [claude-mesh](https://github.com/pplanel/claude-mesh) as a launchd agent. It keeps the config dir that handoffs land in (`handoff.hosts.<host>.configDir`) the same on every host, so `--resume` lists every session from every host, and memory, plans, todos and prompt history are shared:
+`mesh` runs [claude-mesh](https://github.com/pplanel/claude-mesh) as a launchd agent. It keeps each host's config dir (`hosts.<host>.configDir`) the same on every host, so `--resume` lists every session from every host, and memory, plans, todos and prompt history are shared. Moving to another machine is closing the session here and `claude --resume` there:
 
 ```nix
-programs.claude-code-nix.mesh.enable = true;   # with handoff.hosts set
+programs.claude-code-nix.mesh.enable = true;   # with hosts set
 ```
 
 What it does:
-- **The hosts come from `handoff.hosts`**, so the mesh and the handoff agree on where each host keeps its sources and its config dir. Paths inside transcripts are rewritten between layouts, as the handoff does.
+- **Paths inside transcripts are rewritten between layouts**, so the same session reads right on each host.
 - **Peers are reached over [airshell](https://github.com/pplanel/airshell).** `claude-mesh serve` registers its `<host>-claudesync` service with airshell-proxy through its control socket and dials the others with `airshell-connect`. airshell admits only paired Macs (each one's `airshell-connect --print-fingerprint` in the others' `~/.config/airshell/authorized_peers`).
 - **Transcripts merge, they don't overwrite**, and credentials, `settings.json`, plugins and caches never leave a host. Deletions don't propagate.
 - **macOS asks once for Local Network access** when the agent first dials a peer, and again whenever `executable`'s path or signature changes. A system that copies and signs the binary at a stable path sets `mesh.executable` to it.
 
 Options: `package` (claude-mesh's flake by default), `executable`, `airshellConnect` (default `airshell-connect` on the agent's PATH), `interval` (seconds between rounds, default 30). Log: `~/Library/Logs/claude-mesh.log`; `claude-mesh status` shows whether each peer answers.
 
-`nix flake check` builds the plugin for example hosts, tests the hook's answers, and runs `claude plugin validate` on it.
+### Identity
+
+`identity` builds the identity plugin (`pkgs/identity-plugin`) with the machines in `hosts`, and loads it in the instances you list:
+
+```nix
+programs.claude-code-nix.identity = {
+  enable = true;
+  githubOwner = "me";                 # the plugin's author
+  instances = ["claude-personal"];
+};
+```
+
+What it does:
+- **At every session start** (new, resumed, cleared, after a compaction), a `SessionStart` hook gives Claude this machine's `<config dir>/identity/<host>/self.md` and the latest days of its `moments.md` (up to 6 KB). Each machine's agent writes its own; `identity/` isn't synced, so no machine reads another's.
+- **On every prompt**, a `UserPromptSubmit` hook asks Claude to start its reply with `[<host>]: `, so a synced transcript shows where each answer was written.
+- Both stay silent on a machine that isn't in `hosts`.
+
+`nix flake check` builds the plugin for example hosts, tests both hooks' answers, and runs `claude plugin validate` on it.
 
 ### Layout
 
-`programs.claude-code-nix.layout` gives `{ <name> = { command; configDir; }; }`, with absolute paths, for tools that need to know where each account lives, such as claude-handoff.
+`programs.claude-code-nix.layout` gives `{ <name> = { command; configDir; }; }`, with absolute paths, for tools that need to know where each account lives.
 
 The option is called `claude-code-nix` because home-manager already has its own `programs.claude-code`, which manages a single config.

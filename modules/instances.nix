@@ -112,7 +112,7 @@ self: {
       ''}${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") i.extraEnv)}exec ${lib.getExe cfg.package} ${lib.escapeShellArgs (pluginArgs i ++ i.extraArgs)} "$@"
     '';
 in {
-  imports = [./handoff.nix (import ./mesh.nix self)];
+  imports = [./hosts.nix ./identity.nix (import ./mesh.nix self)];
 
   options.programs.claude-code-nix = {
     enable = lib.mkEnableOption "named Claude Code instances";
@@ -190,7 +190,7 @@ in {
     layout = mkOption {
       type = types.attrsOf (types.attrsOf types.str);
       readOnly = true;
-      description = "Per instance: the command and its absolute config dir, for tools such as claude-handoff.";
+      description = "Per instance: the command and its absolute config dir, for tools that need to know where an instance keeps its state.";
     };
   };
 

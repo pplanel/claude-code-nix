@@ -7,7 +7,7 @@
 # syncs, so no Mac reads another's. Silent when there's nothing to give, or
 # on a machine that isn't one of the hosts.
 # IDENTITY_HOST overrides this host's name (tests).
-# Part of the handoff plugin (claude-code-nix); @...@ are filled in by nix.
+# Part of the identity plugin (claude-code-nix); @...@ are filled in by nix.
 JQ=@JQ@
 HOSTS="@HOSTS@"
 MOMENTS_BYTES=6000

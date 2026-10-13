@@ -1,8 +1,8 @@
 name: CI
 
 # nix flake check on every pull request and push to main: the settings merge
-# tests, and the handoff plugin's checks (its layout, the quota hook, the
-# end-to-end claude-handoff tests, claude plugin validate). The checks build
+# tests, the identity plugin's checks (its layout, both hooks, claude plugin
+# validate) and the lint. The checks build
 # for aarch64-darwin, so they run on an Apple Silicon runner. No secrets.
 
 on:

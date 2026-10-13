@@ -1,6 +1,6 @@
 # programs.claude-code-nix.mesh: claude-mesh (github.com/pplanel/claude-mesh)
-# as a launchd agent. It keeps the Claude config dir that handoffs land in
-# (handoff.hosts.<host>.configDir) the same on every host: sessions, memory,
+# as a launchd agent. It keeps each host's Claude config dir
+# (programs.claude-code-nix.hosts.<host>.configDir) the same on every host: sessions, memory,
 # plans, todos and prompt history, merged rather than copied. Peers are
 # reached over airshell: `serve` registers its `<host>-claudesync` service
 # with airshell-proxy through its control socket and dials the others with
@@ -13,11 +13,11 @@ self: {
 }: let
   inherit (lib) mkOption types;
   cfg = config.programs.claude-code-nix.mesh;
-  hosts = config.programs.claude-code-nix.handoff.hosts;
+  hosts = config.programs.claude-code-nix.hosts;
   system = pkgs.stdenv.hostPlatform.system;
   home = config.home.homeDirectory;
 
-  # claude-mesh's layout table, from the handoff's hosts so the two agree.
+  # claude-mesh's layout table, from programs.claude-code-nix.hosts.
   layout = pkgs.writeText "claude-mesh-hosts.json" (builtins.toJSON (lib.mapAttrs (_: h: {
       inherit (h) src;
       config = h.configDir;
@@ -64,7 +64,7 @@ in {
       }
       {
         assertion = builtins.length (builtins.attrNames hosts) >= 2;
-        message = "programs.claude-code-nix.mesh: needs at least two hosts in programs.claude-code-nix.handoff.hosts.";
+        message = "programs.claude-code-nix.mesh: needs at least two hosts in programs.claude-code-nix.hosts.";
       }
     ];
 
