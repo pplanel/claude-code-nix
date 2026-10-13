@@ -1,7 +1,0 @@
-# The repo's Python (pkgs/handoff-plugin). `nix flake check` runs ruff with this.
-line-length = 120
-target-version = "py311"
-
-[lint]
-select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["E501"]  # the formatter owns line length; long strings stay whole

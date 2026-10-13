@@ -5,7 +5,7 @@
 # answer was written. A theme can't do it: it colors the whole history by the
 # Mac you're on now. Silent on a machine that isn't one of the hosts.
 # HOST_TAG_HOST overrides this host's name (tests).
-# Part of the handoff plugin (claude-code-nix); @...@ are filled in by nix.
+# Part of the identity plugin (claude-code-nix); @...@ are filled in by nix.
 JQ=@JQ@
 HOSTS="@HOSTS@"
 
