@@ -121,6 +121,24 @@ for lock in "$LOCK_DIR/$AGENT_NAME"-*.acl; do
   fi
 done
 
+# Session tmps left by sessions that died (kill -9): each holds the agent's
+# credential. Every session records its tmp in "<agent>-<pid>.tmp"; only
+# paths the wrapper itself makes are removed.
+for record in "$LOCK_DIR/$AGENT_NAME"-*.tmp; do
+  [[ -e "$record" ]] || continue
+  pid="${record##*-}"
+  pid="${pid%.tmp}"
+  kill -0 "$pid" 2>/dev/null && continue
+  stale="$(cat "$record")"
+  case "$stale" in
+  "/private/tmp/claude-$AGENT_NAME".??????)
+    note "removing the session tmp left by session $pid"
+    sudo -u "$AGENT_USER" /bin/rm -rf "$stale" 2>/dev/null || true
+    ;;
+  esac
+  rm -f "$record"
+done
+
 # Adds an ACL entry and records it. $1 rule, $2 -R or -, $3 path.
 acl_add() {
   if [[ "$2" == "-R" ]]; then
@@ -205,6 +223,8 @@ resolve_key
 # /private/tmp, not /tmp: Seatbelt matches resolved paths, and a TMP_DIR
 # under the /tmp symlink never matches (tested).
 SESSION_TMP="$(sudo -u "$AGENT_USER" /usr/bin/mktemp -d "/private/tmp/claude-$AGENT_NAME.XXXXXX")"
+TMP_RECORD="$LOCK_DIR/$AGENT_NAME-$$.tmp"
+printf '%s' "$SESSION_TMP" >"$TMP_RECORD"
 
 # Hands the agent's branches back to the owner's repo, as
 # refs/remotes/<cli name>/*. git on the agent's side runs sandboxed; the
@@ -229,6 +249,7 @@ cleanup() {
   hand_back || note "couldn't fetch the agent's branches; they're still in its clone"
   [[ -f "$LOCK_FILE" ]] && remove_acls "$LOCK_FILE" && rm -f "$LOCK_FILE"
   sudo -u "$AGENT_USER" /bin/rm -rf "$SESSION_TMP" 2>/dev/null || true
+  rm -f "$TMP_RECORD"
   exit "$exit_code"
 }
 trap cleanup EXIT INT TERM HUP QUIT
