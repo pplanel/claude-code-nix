@@ -185,7 +185,7 @@ nest.
 - `agents.nix` builds the wrappers for two test agents (clone + full home;
   in-place + state-only); `run.sh` composes their session profiles the way
   `wrapper.sh` does, in a scratch tree under `/private/tmp`.
-- **File cases**: workspace writes, `.envrc`/`.git` allowed in clone and
+- **File cases**: `claude -p` starting, network enumeration, workspace writes, `.envrc`/`.git` allowed in clone and
   denied in in-place (with the `mv` bypass), grants, credentials winning over
   a grant of the whole home, both home scopes, `claude --version`.
 - **Network cases** (`net-probe.py`): every way out, run outside the sandbox
@@ -196,10 +196,10 @@ nest.
 - Exit status is the number of wrong results.
 - It runs as the owner, so it tests Seatbelt alone; the agent's user is a
   second barrier in real use.
-- Checked against a mutation: reopening `localhost:*` in the base profile
-  gives 2 wrong results.
+- Checked against mutations: reopening `localhost:*` gives 2 wrong results,
+  allowing `net.routetable` 3, dropping `CLAUDE_CODE_TMPDIR` 1.
 
-Last run (arrakis, 2026-10-15): 38 ok, 0 wrong, 2 skipped (no `~/.aws`,
+Last run (arrakis, 2026-10-15): 42 ok, 0 wrong, 2 skipped (no `~/.aws`,
 `~/.gnupg`).
 
 ## What the tests taught (SBPL)
@@ -247,6 +247,17 @@ Tested with `sandbox-exec` on macOS 26, watching denials with
   sockets are `rw-rw-rw-`, so for them Seatbelt is the only barrier: the
   daemon would build for the agent (fixed-output derivations download outside
   the proxy), and tailscaled's local API sends files and lists peers.
+- `sysctl net.routetable` (allowed by an early draft) lists every interface,
+  the routes (Tailscale's included) and the ARP table with the LAN's MAC
+  addresses: no packet leaves, but it maps the owner's network. Claude Code
+  runs without it, so it's denied; `if_nameindex`, `netstat -rn` and `arp -an`
+  fail. `ifconfig`'s ioctls were already denied (`socket-ioctl`). Wi-Fi,
+  AWDL, Bluetooth and NetworkExtension daemons (airportd, sharingd,
+  bluetoothd, nehelper…) need no rule: `(deny default)` covers every
+  `mach-lookup` not in section 2's list.
+- Claude Code ignores `TMPDIR` for its own files: it opens `/tmp/claude-<uid>`,
+  outside the profile, unless `CLAUDE_CODE_TMPDIR` is set. The wrapper sets
+  both to the session tmp.
 - Reading another process's arguments from inside the sandbox is denied by
   `(allow process-info* (target same-sandbox))` (`process-info-pidinfo
   others`), even through a direct `sysctl KERN_PROCARGS2`. Outside the

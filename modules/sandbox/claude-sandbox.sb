@@ -78,7 +78,9 @@
   (sysctl-name-prefix "kern.")
   (sysctl-name-prefix "vm.")
   (sysctl-name-prefix "machdep.")
-  (sysctl-name-prefix "net.routetable")
+  ;; Not net.routetable: it lists every interface, the routes (Tailscale's
+  ;; included) and the ARP table with the LAN's MAC addresses (tested), and
+  ;; Claude Code runs without it.
   (sysctl-name "sysctl.proc_cputype")
   (sysctl-name "security.mac.lockdown_mode_state"))
 

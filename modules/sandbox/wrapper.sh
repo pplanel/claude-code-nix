@@ -71,7 +71,10 @@ agent_can_enter() {
 run_sandboxed() {
   local dir="$1"
   shift
-  sudo -u "$AGENT_USER" /usr/bin/env -i "${AGENT_ENV[@]}" TMPDIR="$SESSION_TMP" \
+  # Claude Code ignores TMPDIR for its own files (/tmp/claude-<uid>, outside
+  # the profile) and takes CLAUDE_CODE_TMPDIR instead (tested).
+  sudo -u "$AGENT_USER" /usr/bin/env -i "${AGENT_ENV[@]}" \
+    TMPDIR="$SESSION_TMP" CLAUDE_CODE_TMPDIR="$SESSION_TMP" \
     /usr/bin/sandbox-exec -f "$SESSION_TMP/profile.sb" \
     -D TARGET_DIR="$WORK_TREE" \
     -D AGENT_HOME="$AGENT_HOME" \

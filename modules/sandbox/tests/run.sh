@@ -66,6 +66,13 @@ check() { # <name> <want PASS|BLOCK> <profile> <shell command>
 echo "== files: clone mode, one grant ($work/granted)"
 check "sh runs" PASS "$work/clone.sb" 'echo ok'
 check "claude --version" PASS "$work/clone.sb" 'claude --version'
+# Starts, then fails on auth (no key). EPERM anywhere means the sandbox
+# stopped it: without CLAUDE_CODE_TMPDIR it opens /tmp/claude-<uid>.
+check "claude -p starts (CLAUDE_CODE_TMPDIR)" PASS "$work/clone.sb" \
+  "env -i HOME='$work/home' PATH=\"\$PATH\" CLAUDE_CODE_TMPDIR='$work/tmp' claude --bare -p hi </dev/null 2>&1 | grep -q EPERM; [ \$? -eq 1 ]"
+check "list interfaces" BLOCK "$work/clone.sb" "$python -I -c 'import socket; socket.if_nameindex()'"
+check "read the routing table" BLOCK "$work/clone.sb" '/usr/sbin/netstat -rn -f inet | grep -q default'
+check "read the ARP table" BLOCK "$work/clone.sb" '/usr/sbin/arp -an | grep -q " at "'
 check "write the workspace" PASS "$work/clone.sb" 'echo x > README.md'
 check "write workspace .envrc (clone: allowed)" PASS "$work/clone.sb" 'echo x > .envrc'
 check "write workspace .git (clone: allowed)" PASS "$work/clone.sb" 'echo x > .git/probe'
