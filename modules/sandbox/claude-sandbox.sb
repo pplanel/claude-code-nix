@@ -1,0 +1,191 @@
+(version 3)
+(deny default)
+
+;; Version 3 default-denies operations version 1 left open. Allowed broadly for
+;; now, to match v1; narrowing syscalls to a list is future work.
+(allow syscall-unix syscall-mach)
+(allow file-test-existence)
+
+;; fcntl only acts on descriptors the process already holds; shells and runtimes
+;; use many commands (F_GETFL, F_DUPFD, F_GETPATH…). Narrowing is future work.
+(allow system-fcntl)
+
+;; Seen at /bin/sh startup: calls into the AMFI and Sandbox kernel policies
+;; about the process itself.
+(allow system-mac-syscall
+  (mac-policy-name "AMFI")
+  (mac-policy-name "Sandbox"))
+
+;; This is the base of every agent's profile. default.nix appends, in order:
+;;   1. in-place mode only: write denies on .git, .claude and hook files
+;;   2. read grants (`read.paths`, `--read`), one (allow file-read*) per path
+;;   3. the read deny on sensitive dotfiles, so no grant can reopen them
+;;   4. the agent's own home read (`homeReadScope`), after 3 so the agent
+;;      still reads its own ~/.config
+;; SBPL applies the last matching rule, so this order is the policy.
+;;
+;; Parameters passed by the wrapper with -D, all resolved real paths (Seatbelt
+;; matches resolved paths: a rule on /tmp/... never matches):
+;;   TARGET_DIR  the workspace (the agent's clone, or the owner's tree)
+;;   AGENT_HOME  /Users/_claude_<name>
+;;   TMP_DIR     /private/tmp/claude-<name>.XXXXXX, this session's tmp
+;;   PROXY_PORT  the agent's tinyproxy port
+;; A missing parameter fails to compile, so the profile fails closed.
+
+;; ============================================================================
+;; 0. VERSION 3 HELPERS (APFS Firmlink Dual-Path Matcher)
+;; ============================================================================
+;; In Seatbelt v3, vnode filters may evaluate either the synthetic root path
+;; (/Users/...) or the underlying APFS Data volume (/System/Volumes/Data/Users/...).
+(define (subpath-firmlink p)
+  (require-any
+    (subpath p)
+    (subpath (string-append "/System/Volumes/Data" p))))
+
+(define (literal-firmlink p)
+  (require-any
+    (literal p)
+    (literal (string-append "/System/Volumes/Data" p))))
+
+;; ============================================================================
+;; 1. PROCESS, DYLD & EXECUTION RULES (Version 3 Semantics)
+;; ============================================================================
+;; process-exec* in v3 covers both binary execve() and process-exec-interpreter (#! shebangs in /nix/store)
+(allow process-exec* process-fork)
+(allow signal (target same-sandbox))
+(allow process-info* (target same-sandbox))
+(allow file-ioctl)
+
+;; Claude Code runs on Bun (JavaScriptCore), which needs JIT. Denying it adds
+;; nothing: the agent can already write and exec binaries in TARGET_DIR/TMP_DIR.
+(allow dynamic-code-generation)
+
+;; Nix binaries load dylibs from the store (git needs pcre2). System libraries
+;; come from the dyld shared cache and need no rule.
+(allow file-map-executable (subpath "/nix/store"))
+
+;; Prevent sandbox escape via task_for_pid / debugging / code-signature tampering.
+;; A process may still read its own signature (/bin/sh checks it at startup).
+(deny process-info-codesignature)
+(allow process-info-codesignature (target self))
+(deny nvram*)
+(deny iokit-open-user-client)
+(deny iokit-open-service)
+
+;; Scoped sysctl reads (v3 prefers explicit sysctl prefixes for Node/libuv/Rust)
+(allow sysctl-read
+  (sysctl-name-prefix "hw.")
+  (sysctl-name-prefix "kern.")
+  (sysctl-name-prefix "vm.")
+  (sysctl-name-prefix "machdep.")
+  ;; Not net.routetable: it lists every interface, the routes (Tailscale's
+  ;; included) and the ARP table with the LAN's MAC addresses (tested), and
+  ;; Claude Code runs without it.
+  (sysctl-name "sysctl.proc_cputype")
+  (sysctl-name "security.mac.lockdown_mode_state"))
+
+;; ============================================================================
+;; 2. MACH IPC & POSIX SHM (Minimal v3 Allowlist)
+;; ============================================================================
+;; Deliberately omits:
+;; - com.apple.ctkd.token-client (Secure Enclave token daemon)
+;; - com.apple.CoreAuthentication.* (Touch ID / LocalAuthentication)
+;; - com.apple.securityd.ckks (iCloud Keychain sync)
+(allow mach-lookup
+  (global-name "com.apple.system.opendirectoryd.libinfo")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
+  (global-name "com.apple.system.logger")
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.trustd.agent")
+  (global-name "com.apple.trustd")
+  (global-name "com.apple.securityd.xpc")
+  (global-name "com.apple.CoreServices.coreservicesd")
+  (global-name "com.apple.SystemConfiguration.configd")
+  (global-name "com.apple.bsd.dirhelper")
+  (global-name "com.apple.distributed_notifications@Uv3"))
+
+(allow ipc-posix-shm-read-data
+  (ipc-posix-name "apple.shm.notification_center"))
+
+;; Pseudo-terminal allocation for interactive subshells spawned by Claude Code
+(allow pseudo-tty)
+
+;; ============================================================================
+;; 3. FILESYSTEM READ ACCESS
+;; ============================================================================
+;; Allow stat()/lstat()/readlink() metadata resolution along directory trees
+(allow file-read-metadata)
+
+(allow file-read*
+  (literal "/")
+  (literal "/System/Volumes/Data")
+  (subpath "/nix")
+  (subpath "/usr/lib")
+  (subpath "/usr/bin")
+  (subpath "/usr/share")
+  (subpath "/bin")
+  (subpath "/sbin")
+  (subpath "/System/Library")
+  ;; Real path, not /System/Cryptexes/OS (a symlink): Seatbelt matches resolved
+  ;; paths. dyld looks here for Rapid Security Response updates.
+  (subpath "/System/Volumes/Preboot/Cryptexes/OS")
+  (subpath "/Library/Preferences")
+  (subpath "/Library/Keychains/System.keychain")
+  (subpath "/private/etc/ssl")
+  (literal "/private/etc/resolv.conf")
+  (literal "/private/var/run/resolv.conf")
+  (literal "/private/etc/hosts")
+  (literal "/private/etc/passwd")
+  (literal "/private/etc/group")
+  (literal "/private/etc/localtime")
+  (subpath "/private/var/db/timezone")
+  (subpath "/dev"))
+
+;; The workspace and this session's tmp. The agent's home and the deny on
+;; sensitive dotfiles are appended by default.nix (parts 3 and 4 above).
+(allow file-read*
+  (subpath-firmlink (param "TARGET_DIR"))
+  (subpath-firmlink (param "TMP_DIR")))
+
+;; ============================================================================
+;; 4. FILESYSTEM WRITE ACCESS
+;; ============================================================================
+(allow file-write*
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/random")
+  (literal "/dev/urandom")
+  (literal "/dev/tty")
+  (literal "/dev/ptmx")
+  (literal "/dev/dtracehelper")
+  (regex #"^/dev/ttys[0-9]+$"))
+
+(allow file-write*
+  (subpath-firmlink (param "TARGET_DIR"))
+  (subpath-firmlink (param "TMP_DIR"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.claude"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.config/claude"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.cache"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.npm"))
+  (literal-firmlink (string-append (param "AGENT_HOME") "/.claude.json")))
+
+;; ============================================================================
+;; 5. SELF-MODIFICATION & HOOK ESCAPE PROTECTIONS
+;; ============================================================================
+;; In-place mode only: default.nix appends them from in-place.sb (part 1
+;; above). In clone mode the workspace is the agent's own copy, and nothing
+;; the owner runs reads it.
+
+;; ============================================================================
+;; 6. NETWORK ACCESS (STRICT PER-AGENT LOCAL PROXY)
+;; ============================================================================
+;; The only way out is this agent's own proxy. No other localhost port: they
+;; hold claude-mesh, the nixcache proxies and other agents' proxies. No DNS
+;; (mDNSResponder): it's an exfiltration channel, and the proxy resolves names.
+;; A dev server port gets added here when an agent needs one.
+(allow network-outbound
+  (remote tcp (string-append "localhost:" (param "PROXY_PORT"))))
+
+;; Version 3 also denies getsockopt/setsockopt (SO_ERROR after a non-blocking
+;; connect, TCP_NODELAY…); they only act on sockets the process already holds.
+(allow socket-option-get socket-option-set)
