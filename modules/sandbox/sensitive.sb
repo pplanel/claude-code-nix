@@ -1,0 +1,15 @@
+;; ============================================================================
+;; SENSITIVE DOTFILES (always appended after the read grants)
+;; ============================================================================
+;; No user's credentials or keys are readable, whatever a `read.paths` or
+;; `--read` grant opened above: SBPL applies the last matching rule. The
+;; agent's own home is allowed again right after this, by default.nix, so the
+;; regex below doesn't hide the agent's own ~/.config.
+;; Matches both /Users/... and /System/Volumes/Data/Users/....
+(deny file-read-data
+  (regex #"^(/System/Volumes/Data)?/Users/[^/]+/\.(ssh|aws|gnupg|kube|config|netrc|env|claude-se)")
+  ;; sops-nix keys and decrypted secrets. Real paths: /var and /run are
+  ;; symlinks into /private/var, and Seatbelt matches resolved paths.
+  (subpath "/private/var/lib/sops-nix")
+  (subpath "/private/var/run/secrets")
+  (subpath "/private/var/run/secrets.d"))

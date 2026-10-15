@@ -1,0 +1,20 @@
+;; ============================================================================
+;; IN-PLACE MODE: SELF-MODIFICATION & HOOK ESCAPE PROTECTIONS
+;; ============================================================================
+;; Appended after claude-sandbox.sb when workspace.mode = "in-place": the
+;; agent works in the owner's own tree, so anything there that the owner's
+;; tools execute would run as the owner, outside the sandbox. SBPL applies the
+;; last matching rule, so these denies win over section 4's workspace write.
+(deny file-write*
+  ;; The whole .git, not .git/hooks: rules match each operation's own path, so
+  ;; `mv .git .gitx`, write .gitx/hooks/…, `mv .gitx .git` got past a
+  ;; hooks-only rule (tested). In-place agents don't commit; reading .git
+  ;; stays allowed.
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.git"))
+  ;; Same for .claude: hooks, commands, agents, skills, settings, all run by
+  ;; the owner's own Claude.
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude"))
+  ;; Files other tools run on the owner's behalf, at any depth: direnv,
+  ;; project MCP servers, neovim exrc. Renaming onto these names is denied too
+  ;; (the destination is checked).
+  (regex (string-append "^" (param "TARGET_DIR") "/(.*/)?\\.(envrc|mcp\\.json|nvim\\.lua|exrc)$")))

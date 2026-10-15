@@ -1,14 +1,21 @@
 # services.claude-sandbox (nix-darwin): Claude Code agents isolated from their
-# owner, each its own macOS user, inside a Seatbelt profile, reaching the
-# network only through its own filtering proxy. See ./DESIGN.md.
+# owner. Each agent is its own macOS user, runs inside a Seatbelt profile, and
+# reaches the network only through its own filtering proxy. The design, the
+# defaults and what testing taught are in ./DESIGN.md.
+#
+# Files here:
+#   claude-sandbox.sb  the base Seatbelt profile, shared by every agent
+#   in-place.sb        write denies appended in in-place mode
+#   sensitive.sb       the read deny on credentials, appended after grants
+#   wrapper.sh         the claude-<name> command (Nix adds a preamble)
 self: {
   config,
   lib,
   pkgs,
   ...
 }: let
+  inherit (lib) mkOption types;
   cfg = config.services.claude-sandbox;
-  sandboxProfile = pkgs.writeText "claude-sandbox.sb" (builtins.readFile ./claude-sandbox.sb);
 
   agentSubmodule = {
     name,
@@ -16,64 +23,139 @@ self: {
     ...
   }: {
     options = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
+      enable = mkOption {
+        type = types.bool;
         default = true;
+        description = "Whether to create this agent.";
       };
-      user = lib.mkOption {
-        type = lib.types.str;
+      user = mkOption {
+        type = types.str;
         default = "_claude_${name}";
+        description = "The agent's macOS user (and group).";
       };
-      uid = lib.mkOption {type = lib.types.int;};
-      gid = lib.mkOption {
-        type = lib.types.int;
+      uid = mkOption {
+        type = types.int;
+        description = "The agent user's uid. Pick one no other user has.";
+      };
+      gid = mkOption {
+        type = types.int;
         default = config.uid;
+        description = "The agent group's gid.";
       };
-      cliName = lib.mkOption {
-        type = lib.types.str;
+      cliName = mkOption {
+        type = types.str;
         default = "claude-${name}";
+        description = "The command that starts this agent.";
       };
-      autoGrantWorkspaceACL = lib.mkOption {
-        type = lib.types.bool;
-        default = true;
-      };
-      extraPackages = lib.mkOption {
-        type = lib.types.listOf lib.types.package;
+      extraPackages = mkOption {
+        type = types.listOf types.package;
         default = [];
+        description = "Added to the agent's PATH, after claude, git, ripgrep, fd and nodejs.";
       };
-      extraEnv = lib.mkOption {
-        type = lib.types.attrsOf lib.types.str;
+      extraEnv = mkOption {
+        type = types.attrsOf types.str;
         default = {};
+        description = "Added to the agent's environment, which otherwise starts empty.";
+      };
+
+      git = {
+        name = mkOption {
+          type = types.str;
+          default = config.cliName;
+          description = "Author and committer name for the agent's commits.";
+        };
+        email = mkOption {
+          type = types.str;
+          default = "${config.user}@localhost";
+          description = "Author and committer email for the agent's commits.";
+        };
+      };
+
+      workspace.mode = mkOption {
+        type = types.enum ["clone" "in-place"];
+        default = "clone";
+        description = ''
+          Where the agent works.
+          - clone: in its own clone of the repository, in its home. The
+            owner's tree gets no ACL and the agent's user can reach nothing of
+            the owner's. Work comes back as `refs/remotes/<cliName>/*` in the
+            owner's repo when the session ends.
+          - in-place: in the owner's tree, through ACLs on it and on the
+            directories above it, removed at the end. .git, .claude and hook
+            files (.envrc, .mcp.json, .nvim.lua, .exrc) are write-denied, since
+            the owner's tools run them. Seatbelt is then the only barrier
+            between the agent and anything in the owner's home it can name.
+        '';
+      };
+
+      read = {
+        paths = mkOption {
+          type = types.listOf types.str;
+          default = [];
+          example = ["~/src/shared-docs"];
+          description = ''
+            The owner's paths this agent may always read (~ is the owner's
+            home), opened with ACLs and a Seatbelt rule for each session.
+            Credentials stay denied (sensitive.sb).
+          '';
+        };
+        allowRuntimeGrants = mkOption {
+          type = types.bool;
+          default = true;
+          description = "Allow `<cliName> --read <path>` to grant one more read for one session.";
+        };
+      };
+
+      homeReadScope = mkOption {
+        type = types.enum ["full" "state-only"];
+        default = "full";
+        description = ''
+          What the agent reads of its own home.
+          - full: all of it. In clone mode that includes the clones of every
+            project this agent worked on.
+          - state-only: Claude Code's state (.claude, .claude.json,
+            .config/claude, .cache, .npm) and the current workspace. For real
+            separation between projects, prefer one agent per project.
+        '';
       };
 
       proxy = {
-        port = lib.mkOption {type = lib.types.port;};
-        allowedDomains = lib.mkOption {
-          type = lib.types.listOf lib.types.str;
+        port = mkOption {
+          type = types.port;
+          description = "The agent's tinyproxy port on 127.0.0.1, its only way out.";
+        };
+        allowedDomains = mkOption {
+          type = types.listOf types.str;
           default = ["^(.*\\.)?anthropic\\.com$" "^(.*\\.)?claude\\.ai$"];
+          description = "Extended regexes of the hosts the proxy lets through (CONNECT to 443 only).";
         };
       };
 
       auth = {
-        strategy = lib.mkOption {
-          type = lib.types.enum ["secure-enclave" "hkdf-derived" "keychain" "sops-file"];
+        strategy = mkOption {
+          type = types.enum ["secure-enclave" "hkdf-derived" "keychain" "sops-file"];
           default = "secure-enclave";
+          description = "Where the wrapper gets the agent's API key at each start.";
         };
-        seIdentityFile = lib.mkOption {
-          type = lib.types.str;
+        seIdentityFile = mkOption {
+          type = types.str;
           default = "$HOME/.config/claude-se/${name}.key";
+          description = "secure-enclave: the age-plugin-se identity (made by claude-agent-init).";
         };
-        encryptedSecretFile = lib.mkOption {
-          type = lib.types.str;
+        encryptedSecretFile = mkOption {
+          type = types.str;
           default = "$HOME/.config/claude-se/${name}-anthropic.key.age";
+          description = "secure-enclave and hkdf-derived: the encrypted API key.";
         };
-        keychainService = lib.mkOption {
-          type = lib.types.str;
+        keychainService = mkOption {
+          type = types.str;
           default = "anthropic-api-key-${name}";
+          description = "keychain: the generic password's service name, in the owner's keychain.";
         };
-        sopsSecretPath = lib.mkOption {
-          type = lib.types.nullOr lib.types.str;
+        sopsSecretPath = mkOption {
+          type = types.nullOr types.str;
           default = null;
+          description = "sops-file: a decrypted secret the agent's user can read.";
         };
       };
     };
@@ -101,17 +183,46 @@ self: {
       ConnectPort 443
     '';
 
-  mkAgentWrapper = name: agent: let
-    aclRule = "user:${agent.user} allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit";
-    extraEnvArgs = lib.concatStringsSep " " (lib.mapAttrsToList (k: v: "${lib.escapeShellArg k}=${lib.escapeShellArg v}") agent.extraEnv);
-    # Chosen at build time: a bash `case` on a constant fails shellcheck.
-    resolveKey = {
+  # The agent's own home, read after sensitive.sb so its own ~/.config stays
+  # readable (see the order in claude-sandbox.sb).
+  homeRead = {
+    full = ''
+      ;; The agent's own home (homeReadScope = "full").
+      (allow file-read* (subpath-firmlink (param "AGENT_HOME")))
+    '';
+    state-only = ''
+      ;; Claude Code's state in the agent's home (homeReadScope = "state-only").
+      (allow file-read*
+        (subpath-firmlink (string-append (param "AGENT_HOME") "/.claude"))
+        (subpath-firmlink (string-append (param "AGENT_HOME") "/.config/claude"))
+        (subpath-firmlink (string-append (param "AGENT_HOME") "/.cache"))
+        (subpath-firmlink (string-append (param "AGENT_HOME") "/.npm"))
+        (literal-firmlink (string-append (param "AGENT_HOME") "/.claude.json")))
+    '';
+  };
+
+  # The profile is head + this session's grants + tail; the wrapper joins
+  # them, since grants come from the command line.
+  profileHead = name: agent:
+    pkgs.writeText "claude-sandbox-${name}-head.sb" (
+      builtins.readFile ./claude-sandbox.sb
+      + lib.optionalString (agent.workspace.mode == "in-place") ("\n" + builtins.readFile ./in-place.sb)
+      + "\n;; Read grants (read.paths, --read), added by the wrapper:\n"
+    );
+  profileTail = name: agent:
+    pkgs.writeText "claude-sandbox-${name}-tail.sb" (
+      "\n" + builtins.readFile ./sensitive.sb + "\n" + homeRead.${agent.homeReadScope}
+    );
+
+  # Chosen at build time: a bash `case` on a constant fails shellcheck.
+  resolveKey = agent:
+    {
       "secure-enclave" = ''
-        echo "[${agent.cliName}] Touch ID required to unlock Secure Enclave key for '$AGENT_NAME'..." >&2
+        note "Touch ID required to unlock the Secure Enclave key"
         RESOLVED_API_KEY="$(age --decrypt -i "${agent.auth.seIdentityFile}" "${agent.auth.encryptedSecretFile}" | tr -d '\n\r')"
       '';
       "hkdf-derived" = ''
-        echo "[${agent.cliName}] Touch ID required to derive key for '$AGENT_NAME'..." >&2
+        note "Touch ID required to derive the key"
         MASTER_SEED="$(age --decrypt -i "${cfg.masterHkdf.seIdentityFile}" "${cfg.masterHkdf.encryptedMasterSeedFile}" | xxd -p -c 64)"
         AGENT_HEX_KEY="$(openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt hexkey:"$MASTER_SEED" -kdfopt info:"claude-agent:$AGENT_NAME" HKDF | tr -d ':')"
         RESOLVED_API_KEY="$(openssl enc -d -aes-256-cbc -pbkdf2 -K "$AGENT_HEX_KEY" -iv 00000000000000000000000000000000 -in "${agent.auth.encryptedSecretFile}" | tr -d '\n\r')"
@@ -123,101 +234,71 @@ self: {
       "sops-file" = ''
         RESOLVED_API_KEY="$(sudo -u "$AGENT_USER" /bin/cat "${toString agent.auth.sopsSecretPath}" | tr -d '\n\r')"
       '';
+    }
+    .${
+      agent.auth.strategy
     };
+
+  mkAgentWrapper = name: agent: let
+    home = "/Users/${agent.user}";
+    proxyUrl = "http://127.0.0.1:${toString agent.proxy.port}";
+    agentPath = lib.makeBinPath ([cfg.package pkgs.git pkgs.ripgrep pkgs.fd pkgs.nodejs] ++ agent.extraPackages);
+    # The agent's whole environment: the wrapper starts it with env -i.
+    agentEnv =
+      {
+        HOME = home;
+        USER = agent.user;
+        LOGNAME = agent.user;
+        PATH = "${agentPath}:/usr/bin:/bin";
+        HTTP_PROXY = proxyUrl;
+        HTTPS_PROXY = proxyUrl;
+        http_proxy = proxyUrl;
+        https_proxy = proxyUrl;
+        NO_PROXY = "localhost,127.0.0.1";
+        GIT_AUTHOR_NAME = agent.git.name;
+        GIT_AUTHOR_EMAIL = agent.git.email;
+        GIT_COMMITTER_NAME = agent.git.name;
+        GIT_COMMITTER_EMAIL = agent.git.email;
+      }
+      // agent.extraEnv;
   in
     pkgs.writeShellApplication {
       name = agent.cliName;
-      runtimeInputs = [pkgs.coreutils cfg.package pkgs.age pkgs.age-plugin-se pkgs.openssl pkgs.xxd];
-      text = ''
-        set -euo pipefail
-        TARGET_DIR="$(pwd -P)"
-        AGENT_NAME="${name}"
-        AGENT_USER="${agent.user}"
-        AGENT_HOME="/Users/$AGENT_USER"
-        ACL_RULE="${aclRule}"
-        STALE_LOCK="/tmp/.claude-acl-locks"
-
-        if [[ "$TARGET_DIR" == "/" || "$TARGET_DIR" == "$HOME" ]]; then
-          echo "Error: Refusing to run ${agent.cliName} in$TARGET_DIR. cd into a project directory first." >&2
-          exit 1
-        fi
-
-        mkdir -p "$STALE_LOCK"
-        for lockfile in "$STALE_LOCK/$AGENT_NAME"-*.lock; do
-          [[ -e "$lockfile" ]] || continue
-          stale_pid="''${lockfile##*-}"
-          stale_pid="''${stale_pid%.lock}"
-          if ! kill -0 "$stale_pid" 2>/dev/null; then
-            stale_dir="$(cat "$lockfile")"
-            [[ -d "$stale_dir" ]] && /bin/chmod -R -a "$ACL_RULE" "$stale_dir" 2>/dev/null || true
-            rm -f "$lockfile"
-          fi
-        done
-
-        ${resolveKey.${agent.auth.strategy}}
-
-        # /private/tmp, not /tmp: Seatbelt matches resolved paths, and a
-        # TMP_DIR under the /tmp symlink never matches (tested).
-        SESSION_TMP="$(sudo -u "$AGENT_USER" /usr/bin/mktemp -d "/private/tmp/claude-$AGENT_NAME.XXXXXX")"
-        LOCK_FILE="$STALE_LOCK/$AGENT_NAME-$$.lock"
-
-        cleanup() {
-          local exit_code=$?
-          ${lib.optionalString agent.autoGrantWorkspaceACL ''
-          /bin/chmod -R -a "$ACL_RULE" "$TARGET_DIR" 2>/dev/null || true
-          rm -f "$LOCK_FILE"
-        ''}
-          sudo -u "$AGENT_USER" /bin/rm -rf "$SESSION_TMP" 2>/dev/null || true
-          exit "$exit_code"
-        }
-        trap cleanup EXIT INT TERM HUP QUIT
-
-        # The key never goes on a command line: sudo stays alive as root for the
-        # whole session, and any user reads its argv with `ps` (tested). It goes
-        # through stdin into a 0600 file of the agent's, which Claude Code reads
-        # through apiKeyHelper; the file goes away with the session tmp.
-        KEY_FILE="$SESSION_TMP/.anthropic-key"
-        printf '%s' "$RESOLVED_API_KEY" |
-          sudo -u "$AGENT_USER" /usr/bin/env /bin/sh -c 'umask 077 && cat > "$1"' sh "$KEY_FILE"
-        unset RESOLVED_API_KEY
-        SETTINGS_JSON="$(printf '{"apiKeyHelper":"/bin/cat %s"}' "$KEY_FILE")"
-
-        ${lib.optionalString agent.autoGrantWorkspaceACL ''
-          echo "$TARGET_DIR" > "$LOCK_FILE"
-          /bin/chmod -R +a "$ACL_RULE" "$TARGET_DIR" 2>/dev/null || true
-        ''}
-
-        PROXY_URL="http://127.0.0.1:${toString agent.proxy.port}"
-
-        sudo -u "$AGENT_USER" -H \
-          env -i \
-              HOME="$AGENT_HOME" \
-              USER="$AGENT_USER" \
-              LOGNAME="$AGENT_USER" \
-              TERM="''${TERM:-xterm-256color}" \
-              TMPDIR="$SESSION_TMP" \
-              PATH="${lib.makeBinPath ([cfg.package pkgs.git pkgs.ripgrep pkgs.fd pkgs.nodejs] ++ agent.extraPackages)}:/usr/bin:/bin" \
-              HTTP_PROXY="$PROXY_URL" \
-              HTTPS_PROXY="$PROXY_URL" \
-              http_proxy="$PROXY_URL" \
-              https_proxy="$PROXY_URL" \
-              NO_PROXY="localhost,127.0.0.1" \
-              ${extraEnvArgs} \
-          /usr/bin/sandbox-exec \
-            -f "${sandboxProfile}" \
-            -D TARGET_DIR="$TARGET_DIR" \
-            -D AGENT_HOME="$AGENT_HOME" \
-            -D TMP_DIR="$SESSION_TMP" \
-            -D PROXY_PORT="${toString agent.proxy.port}" \
-            "${lib.getExe cfg.package}" --settings "$SETTINGS_JSON" "$@"
-      '';
+      runtimeInputs = [pkgs.coreutils pkgs.git pkgs.age pkgs.age-plugin-se pkgs.openssl pkgs.xxd];
+      text =
+        ''
+          # ---- generated by modules/sandbox/default.nix for agent "${name}"
+          CLI_NAME=${lib.escapeShellArg agent.cliName}
+          AGENT_NAME=${lib.escapeShellArg name}
+          AGENT_USER=${lib.escapeShellArg agent.user}
+          AGENT_HOME=${lib.escapeShellArg home}
+          PROXY_PORT=${toString agent.proxy.port}
+          CLAUDE_BIN=${lib.escapeShellArg (lib.getExe cfg.package)}
+          WORKSPACE_MODE=${agent.workspace.mode}
+          ALLOW_RUNTIME_GRANTS=${
+            if agent.read.allowRuntimeGrants
+            then "1"
+            else "0"
+          }
+          PROFILE_HEAD=${profileHead name agent}
+          PROFILE_TAIL=${profileTail name agent}
+          FIXED_READ_PATHS=(${lib.escapeShellArgs agent.read.paths})
+          AGENT_ENV=(${lib.escapeShellArgs (lib.mapAttrsToList (k: v: "${k}=${v}") agentEnv)} "TERM=''${TERM:-xterm-256color}")
+          resolve_key() {
+            ${resolveKey agent}
+          }
+          # ---- end of generated preamble
+        ''
+        + builtins.readFile ./wrapper.sh;
     };
 
   agentInitHelper = pkgs.writeShellApplication {
     name = "claude-agent-init";
     runtimeInputs = [pkgs.age pkgs.age-plugin-se pkgs.openssl pkgs.xxd pkgs.coreutils];
     text = ''
-      set -euo pipefail
+      # Stores an agent's API key for the secure-enclave (--se, default) or
+      # hkdf-derived (--hkdf) strategy, in ~/.config/claude-se. Run it in a
+      # login session: an enclave key works only in the context that made it.
       AGENT_NAME="''${1:-}"
       MODE="''${2:---se}"
       [[ -z "$AGENT_NAME" ]] && { echo "Usage: claude-agent-init <agent-name> [--se | --hkdf]" >&2; exit 1; }
@@ -252,26 +333,29 @@ self: {
   };
 in {
   options.services.claude-sandbox = {
-    enable = lib.mkEnableOption "Multi-agent isolated macOS users & Seatbelt sandboxes for Claude Code";
-    package = lib.mkOption {
-      type = lib.types.package;
+    enable = lib.mkEnableOption "Claude Code agents as isolated macOS users in Seatbelt";
+    package = mkOption {
+      type = types.package;
       default = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
       defaultText = lib.literalExpression "claude-code-nix's pinned claude-code";
       description = "The Claude Code the agents run.";
     };
     masterHkdf = {
-      seIdentityFile = lib.mkOption {
-        type = lib.types.str;
+      seIdentityFile = mkOption {
+        type = types.str;
         default = "$HOME/.config/claude-se/master.key";
+        description = "hkdf-derived: the master Secure Enclave identity.";
       };
-      encryptedMasterSeedFile = lib.mkOption {
-        type = lib.types.str;
+      encryptedMasterSeedFile = mkOption {
+        type = types.str;
         default = "$HOME/.config/claude-se/master-seed.age";
+        description = "hkdf-derived: the encrypted 256-bit master seed.";
       };
     };
-    agents = lib.mkOption {
-      type = lib.types.attrsOf (lib.types.submodule agentSubmodule);
+    agents = mkOption {
+      type = types.attrsOf (types.submodule agentSubmodule);
       default = {};
+      description = "The agents, by name.";
     };
   };
 
@@ -290,9 +374,11 @@ in {
       enabledAgents;
     };
 
+    # workspaces/ must exist: a sandboxed `git clone` may write only inside
+    # its target, not create the parent.
     system.activationScripts.postActivation.text = lib.concatStringsSep "\n" (
       lib.mapAttrsToList (_: a: ''
-        mkdir -p "/Users/${a.user}/.claude" "/Users/${a.user}/.config" "/Users/${a.user}/.cache"
+        mkdir -p "/Users/${a.user}/.claude" "/Users/${a.user}/.config" "/Users/${a.user}/.cache" "/Users/${a.user}/workspaces"
         chown -R "${a.user}:${a.user}" "/Users/${a.user}"
         chmod 700 "/Users/${a.user}"
       '')
@@ -312,6 +398,9 @@ in {
       })
     enabledAgents;
 
+    # The wrapper runs as the owner (an admin) and acts as the agent through
+    # these. /usr/bin/env takes any command, so this is "admins may run
+    # anything as the agent": the agent is the less privileged side.
     environment.etc."sudoers.d/claude-sandbox".text = lib.concatStringsSep "\n" (
       lib.mapAttrsToList (_: a: ''
         Defaults:${a.user} !lecture

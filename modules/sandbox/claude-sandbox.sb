@@ -16,11 +16,21 @@
   (mac-policy-name "AMFI")
   (mac-policy-name "Sandbox"))
 
-;; Dynamic parameters passed by each agent's wrapper:
-;; -D TARGET_DIR="/path/to/workspace"
-;; -D AGENT_HOME="/Users/_claude_<name>"
-;; -D TMP_DIR="/private/tmp/claude-<name>.XXXXXX"
-;; -D PROXY_PORT="8888"
+;; This is the base of every agent's profile. default.nix appends, in order:
+;;   1. in-place mode only: write denies on .git, .claude and hook files
+;;   2. read grants (`read.paths`, `--read`), one (allow file-read*) per path
+;;   3. the read deny on sensitive dotfiles, so no grant can reopen them
+;;   4. the agent's own home read (`homeReadScope`), after 3 so the agent
+;;      still reads its own ~/.config
+;; SBPL applies the last matching rule, so this order is the policy.
+;;
+;; Parameters passed by the wrapper with -D, all resolved real paths (Seatbelt
+;; matches resolved paths: a rule on /tmp/... never matches):
+;;   TARGET_DIR  the workspace (the agent's clone, or the owner's tree)
+;;   AGENT_HOME  /Users/_claude_<name>
+;;   TMP_DIR     /private/tmp/claude-<name>.XXXXXX, this session's tmp
+;;   PROXY_PORT  the agent's tinyproxy port
+;; A missing parameter fails to compile, so the profile fails closed.
 
 ;; ============================================================================
 ;; 0. VERSION 3 HELPERS (APFS Firmlink Dual-Path Matcher)
@@ -129,18 +139,11 @@
   (subpath "/private/var/db/timezone")
   (subpath "/dev"))
 
-;; Read access strictly limited to THIS agent's home, workspace, and session tmp
+;; The workspace and this session's tmp. The agent's home and the deny on
+;; sensitive dotfiles are appended by default.nix (parts 3 and 4 above).
 (allow file-read*
-  (subpath-firmlink (param "AGENT_HOME"))
   (subpath-firmlink (param "TARGET_DIR"))
   (subpath-firmlink (param "TMP_DIR")))
-
-;; HARD DENY: Block reading other users' or other agents' sensitive dotfiles
-;; Matches both /Users/... and /System/Volumes/Data/Users/...
-(deny file-read-data
-  (regex #"^(/System/Volumes/Data)?/Users/[^/]+/\.(ssh|aws|gnupg|kube|config|netrc|env|claude-se)")
-  (subpath-firmlink "/var/lib/sops-nix")
-  (subpath-firmlink "/private/var/lib/sops-nix"))
 
 ;; ============================================================================
 ;; 4. FILESYSTEM WRITE ACCESS
@@ -167,20 +170,9 @@
 ;; ============================================================================
 ;; 5. SELF-MODIFICATION & HOOK ESCAPE PROTECTIONS
 ;; ============================================================================
-;; In Seatbelt v3, later rules take precedence when specificity matches.
-;; Placing these (deny file-write*) rules AFTER Section 4 guarantees they
-;; override the workspace write permission.
-;; The whole .git, not .git/hooks: rules match each operation's own path, so
-;; `mv .git .gitx`, write .gitx/hooks/…, `mv .gitx .git` got past a hooks-only
-;; rule (tested). Agents don't commit; reading .git stays allowed.
-(deny file-write*
-  (subpath-firmlink (string-append (param "TARGET_DIR") "/.git"))
-  ;; Same for .claude: hooks, commands, agents, skills, settings — all run by
-  ;; Pedro's own Claude. Agents never need to write there.
-  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude"))
-  ;; Files other tools run on Pedro's behalf, at any depth: direnv, project MCP
-  ;; servers, neovim exrc.
-  (regex (string-append "^" (param "TARGET_DIR") "/(.*/)?\\.(envrc|mcp\\.json|nvim\\.lua|exrc)$")))
+;; In-place mode only: default.nix appends them from in-place.sb (part 1
+;; above). In clone mode the workspace is the agent's own copy, and nothing
+;; the owner runs reads it.
 
 ;; ============================================================================
 ;; 6. NETWORK ACCESS (STRICT PER-AGENT LOCAL PROXY)
