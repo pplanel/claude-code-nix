@@ -74,7 +74,7 @@ run_sandboxed() {
   shift
   # Claude Code ignores TMPDIR for its own files (/tmp/claude-<uid>, outside
   # the profile) and takes CLAUDE_CODE_TMPDIR instead (tested).
-  sudo -u "$AGENT_USER" /usr/bin/env -i "${AGENT_ENV[@]}" \
+  sudo -u "$AGENT_USER" /usr/bin/env -i "${AGENT_ENV[@]}" "${GIT_ENV[@]}" \
     TMPDIR="$SESSION_TMP" CLAUDE_CODE_TMPDIR="$SESSION_TMP" \
     /usr/bin/sandbox-exec -f "$SESSION_TMP/profile.sb" \
     -D TARGET_DIR="$WORK_TREE" \
@@ -166,6 +166,8 @@ READ_RULE="user:$AGENT_USER allow list,search,read,readattr,readextattr,readsecu
 WRITE_RULE="user:$AGENT_USER allow list,add_file,search,delete,add_subdirectory,delete_child,read,write,append,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit"
 
 # ---------------------------------------------------------------- workspace
+# Extra git configuration for the agent, as environment (no file written).
+GIT_ENV=()
 case "$WORKSPACE_MODE" in
 clone)
   # The agent works in its own clone, in its home; the owner's tree gets no
@@ -181,6 +183,11 @@ clone)
 in-place)
   WORK_TREE="$(pwd -P)"
   REL=""
+  # The repository is the owner's, so the agent's git refuses even `git
+  # status` ("detected dubious ownership"). Trust this one workspace for the
+  # session; writes to .git stay denied by in-place.sb (tested on caladan:
+  # status works, commit fails on .git/index.lock).
+  GIT_ENV=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory "GIT_CONFIG_VALUE_0=$WORK_TREE")
   if [[ "$WORK_TREE" == "/" || "$WORK_TREE" == "$HOME" ]]; then
     die "refusing to run in $WORK_TREE: cd into a project first"
   fi
