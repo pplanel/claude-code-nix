@@ -50,7 +50,7 @@ self: {
       extraPackages = mkOption {
         type = types.listOf types.package;
         default = [];
-        description = "Added to the agent's PATH, after claude, git, ripgrep, fd and nodejs.";
+        description = "Added to the agent's PATH and per-user profile, after claude, git, ripgrep, fd and nodejs.";
       };
       extraEnv = mkOption {
         type = types.attrsOf types.str;
@@ -180,7 +180,9 @@ self: {
         };
         allowedDomains = mkOption {
           type = types.listOf types.str;
-          default = ["^(.*\\.)?anthropic\\.com$" "^(.*\\.)?claude\\.ai$"];
+          # claude.com: interactive Claude Code checks platform.claude.com at
+          # start, and refuses to open without it (tested on caladan).
+          default = ["^(.*\\.)?anthropic\\.com$" "^(.*\\.)?claude\\.ai$" "^(.*\\.)?claude\\.com$"];
           description = "Extended regexes of the hosts the proxy lets through (CONNECT to 443 only).";
         };
       };
@@ -229,6 +231,14 @@ self: {
   };
 
   enabledAgents = lib.filterAttrs (_: a: a.enable) cfg.agents;
+
+  # What the agent runs: on the wrapper's PATH, and in the agent user's
+  # per-user profile (users.users.<user>.packages), because zsh, Claude
+  # Code's shell, reads nix-darwin's /etc/zshenv (a /nix/store link the
+  # sandbox allows) and rebuilds PATH around /etc/profiles/per-user/$USER/bin
+  # before /usr/bin. Without the profile, git there is /usr/bin/git, Apple's
+  # xcrun shim, which fails in the sandbox (tested on caladan).
+  agentPackages = agent: [cfg.package pkgs.git pkgs.ripgrep pkgs.fd pkgs.nodejs] ++ agent.extraPackages;
 
   mkTinyproxyConf = name: agent: let
     filterFile = pkgs.writeText "claude-proxy-${name}.filter" (lib.concatStringsSep "\n" agent.proxy.allowedDomains);
@@ -360,7 +370,7 @@ self: {
   mkAgentWrapper = name: agent: let
     home = "/Users/${agent.user}";
     proxyUrl = "http://127.0.0.1:${toString agent.proxy.port}";
-    agentPath = lib.makeBinPath ([cfg.package pkgs.git pkgs.ripgrep pkgs.fd pkgs.nodejs] ++ agent.extraPackages);
+    agentPath = lib.makeBinPath (agentPackages agent);
     # The agent's whole environment: the wrapper starts it with env -i.
     agentEnv =
       {
@@ -490,6 +500,7 @@ in {
           home = "/Users/${a.user}";
           createHome = true;
           shell = "/bin/bash";
+          packages = agentPackages a;
         })
       enabledAgents;
     };
