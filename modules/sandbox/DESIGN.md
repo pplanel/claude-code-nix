@@ -359,6 +359,21 @@ the keychain, clone mode):
 | the token in any process's arguments (`ps -axww`), mid-session | `0` |
 | `--read <repo>` / no grant / ACLs after the session | reads / `EACCES` / `0` left |
 
+Later on caladan, sessions under stress:
+
+- **One ACL session per agent**: with a `--read` session open, a second
+  `--read` session refused ("another claude-teste session holds ACLs"); a
+  session without grants ran alongside.
+- **`kill -9` of a `--read` session's wrapper** left its ACL (`1` on the
+  owner's home); the next session printed "removing ACLs left by session
+  95165" and left `0`.
+- **It also left the session tmp**, `0700` but holding the subscription
+  token. Every session now records its tmp in the lock dir
+  (`<agent>-<pid>.tmp`), and the next session removes those of dead
+  sessions; only paths shaped like the wrapper's own
+  (`/private/tmp/claude-<agent>.XXXXXX`) are removed, so a tampered record
+  can't become an `rm -rf` (checked against a mutation).
+
 And outside SBPL:
 
 - macOS ACLs: `chmod -R +a` with `file_inherit,directory_inherit` maps `list`
