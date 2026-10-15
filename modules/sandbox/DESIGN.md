@@ -210,6 +210,16 @@ Tested with `sandbox-exec` on macOS 26, watching denials with
   and every other local service. DNS through mDNSResponder is an exfiltration
   channel, and with a proxy the client doesn't need it. Both are closed;
   outbound is the proxy port only.
+- Every other way out is closed by `(deny default)` alone (tested with a
+  Python probe inside the clone profile, and outside as a control, where all
+  but one target were reachable): other localhost TCP and UDP ports,
+  listening on localhost, the LAN, Tailscale peers, the internet (TCP and
+  UDP), DNS, mDNS/Bonjour multicast, AWDL (`ff02::1%awdl0`), and Unix sockets:
+  `nix-daemon`, `tailscaled`, `determinate-nixd`, `mDNSResponder`, `portmap`,
+  airshell-proxy's control socket, tmux. The nix-daemon and tailscaled
+  sockets are `rw-rw-rw-`, so for them Seatbelt is the only barrier: the
+  daemon would build for the agent (fixed-output derivations download outside
+  the proxy), and tailscaled's local API sends files and lists peers.
 - Reading another process's arguments from inside the sandbox is denied by
   `(allow process-info* (target same-sandbox))` (`process-info-pidinfo
   others`), even through a direct `sysctl KERN_PROCARGS2`. Outside the
