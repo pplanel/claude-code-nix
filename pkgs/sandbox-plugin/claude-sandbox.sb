@@ -177,19 +177,21 @@
   (subpath-firmlink (string-append (param "TARGET_DIR") "/.git"))
   ;; Same for .claude: hooks, commands, agents, skills, settings — all run by
   ;; Pedro's own Claude. Agents never need to write there.
-  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude")))
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude"))
+  ;; Files other tools run on Pedro's behalf, at any depth: direnv, project MCP
+  ;; servers, neovim exrc.
+  (regex (string-append "^" (param "TARGET_DIR") "/(.*/)?\\.(envrc|mcp\\.json|nvim\\.lua|exrc)$")))
 
 ;; ============================================================================
 ;; 6. NETWORK ACCESS (STRICT PER-AGENT LOCAL PROXY)
 ;; ============================================================================
-;; 6A. Always allow talking to this agent's dedicated Tinyproxy + mDNSResponder
+;; The only way out is this agent's own proxy. No other localhost port: they
+;; hold claude-mesh, the nixcache proxies and other agents' proxies. No DNS
+;; (mDNSResponder): it's an exfiltration channel, and the proxy resolves names.
+;; A dev server port gets added here when an agent needs one.
 (allow network-outbound
-  (remote tcp (string-append "localhost:" (param "PROXY_PORT")))
-  (literal "/private/var/run/mDNSResponder"))
+  (remote tcp (string-append "localhost:" (param "PROXY_PORT"))))
 
-;; 6B. Localhost dev servers. TODO (section 6 review): this reaches every local
-;; service (claude-mesh, nixcache proxies, other agents' proxies). SBPL takes a
-;; single port or "*", not a range.
-(allow network-bind (local ip "localhost:*"))
-(allow network-inbound (local ip "localhost:*"))
-(allow network-outbound (remote ip "localhost:*"))
+;; Version 3 also denies getsockopt/setsockopt (SO_ERROR after a non-blocking
+;; connect, TCP_NODELAY…); they only act on sockets the process already holds.
+(allow socket-option-get socket-option-set)
