@@ -233,9 +233,10 @@ self: {
   mkTinyproxyConf = name: agent: let
     filterFile = pkgs.writeText "claude-proxy-${name}.filter" (lib.concatStringsSep "\n" agent.proxy.allowedDomains);
   in
+    # launchd starts it as root; it drops to nobody (macOS has no _nobody).
     pkgs.writeText "tinyproxy-claude-${name}.conf" ''
-      User _nobody
-      Group _nobody
+      User nobody
+      Group nobody
       Port ${toString agent.proxy.port}
       Listen 127.0.0.1
       BindSame yes
