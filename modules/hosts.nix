@@ -1,5 +1,6 @@
 # programs.claude-code-nix.hosts: the machines that share a Claude setup, by
-# `hostname -s`, and where each keeps its sources and its Claude config dir.
+# `hostname -s`, where each keeps its sources and its Claude config dir, and
+# the name its agent chose, if any.
 # claude-mesh syncs those config dirs, and the identity plugin gives each
 # machine's agent its own identity; both take the machines from here, so
 # they agree.
@@ -15,6 +16,17 @@
       configDir = mkOption {
         type = types.str;
         description = "Absolute path of the Claude config dir there (the personal instance's).";
+      };
+      agentName = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "Liet";
+        description = ''
+          The name that host's agent chose for itself, if any. The identity
+          instances export it there as CLAUDE_AGENT_NAME, for hooks and tools
+          (atuin's history author, for one). It's data the owner records; the
+          agent's own self.md stays memory, never read as config.
+        '';
       };
     };
   };

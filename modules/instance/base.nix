@@ -27,6 +27,11 @@ in {
       type = types.listOf types.str;
       default = [];
     };
+    extraSetup = mkOption {
+      type = types.lines;
+      default = "";
+      description = "Shell run by the instance's command before it starts claude, after its environment is set. For modules that need runtime facts, like the host.";
+    };
     dir = mkOption {
       type = types.str;
       internal = true;
