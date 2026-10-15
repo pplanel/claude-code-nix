@@ -374,6 +374,21 @@ Later on caladan, sessions under stress:
   (`/private/tmp/claude-<agent>.XXXXXX`) are removed, so a tampered record
   can't become an `rm -rf` (checked against a mutation).
 
+In-place mode, as a second agent (`teste2`, `workspace.mode = "in-place"`):
+
+| Step | Result |
+|---|---|
+| edit the owner's README | done, in the owner's tree, uncommitted |
+| `.git/hooks/pre-commit`, `.envrc`, `.claude/x`, `mv .git .gitx` | `Operation not permitted`, each |
+| `git commit` | first refused by git ("dubious ownership": the repo is the owner's); with `safe.directory` set, `.git/index.lock: Operation not permitted` |
+| ACLs during the session / after | `2` (`~`, which is `0750`, and the workspace; `~/src` is `0755`, so no ACL), `0` after `/exit` |
+| `teste` (clone) running at the same time | `ok` |
+
+The agent's git refusing even `git status` in the owner's repo was a gap:
+the wrapper now passes `safe.directory` for the workspace through the
+environment (`GIT_CONFIG_COUNT`/`KEY_0`/`VALUE_0`), in in-place mode only,
+writing no config file. Reads work; writes to `.git` stay denied.
+
 And outside SBPL:
 
 - macOS ACLs: `chmod -R +a` with `file_inherit,directory_inherit` maps `list`
@@ -405,10 +420,9 @@ And outside SBPL:
 
 ## Open
 
-1. **In-place mode end to end**: the run on caladan covered clone mode,
-   `--read` and oauth-token; in-place (the owner's tree, ACLs on it, the
-   `.git`/hook-file denies as the agent's user) hasn't run as a real agent
-   yet, nor the secure-enclave and hkdf strategies.
+1. **Key strategies end to end**: the runs on caladan used oauth-token from
+   the keychain; secure-enclave and hkdf-derived (Touch ID) haven't run as a
+   real agent yet.
 2. The `hkdf-derived` strategy uses AES-CBC with a zero IV.
 3. Secure Enclave keys work only in the context that created them (login
    session vs daemon), and `any-biometry` blocks anything unattended.
