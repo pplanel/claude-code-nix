@@ -62,7 +62,7 @@ as_agent_write() {
 
 # Whether the agent's user can enter a directory (search permission).
 agent_can_enter() {
-  sudo -u "$AGENT_USER" /usr/bin/test -x "$1"
+  sudo -u "$AGENT_USER" /bin/test -x "$1"
 }
 
 # Runs a command as the agent, inside the session profile, from directory $1.
@@ -194,6 +194,11 @@ if ((NEEDS_ACLS && LIVE_ACL_SESSIONS)); then
   die "another $CLI_NAME session holds ACLs (in-place or --read); one at a time"
 fi
 
+# Every path is absolute from here. Leave the owner's directory, which the
+# agent's user can't read: each sudo -u would start there and its shell
+# complain (getcwd: Permission denied).
+cd /
+
 # ---------------------------------------------------------------- session
 resolve_key
 
@@ -276,12 +281,10 @@ fi
 
 # Start where the owner was: the same subdirectory of the clone, if it exists.
 START_DIR="$WORK_TREE"
-if [[ -n "$REL" ]] && sudo -u "$AGENT_USER" /usr/bin/test -d "$WORK_TREE/$REL"; then
+if [[ -n "$REL" ]] && sudo -u "$AGENT_USER" /bin/test -d "$WORK_TREE/$REL"; then
   START_DIR="$WORK_TREE/${REL%/}"
 fi
 
-# The owner's directory may be closed to the agent's user; sudo starts there.
-cd /
 case "$AUTH_KIND" in
 api-key)
   run_sandboxed "$START_DIR" "$CLAUDE_BIN" \
