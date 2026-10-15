@@ -44,6 +44,7 @@
         claude-code = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
       };
       identity-module = pkgs.callPackage ./tests/identity-module.nix {};
+      atuin-plugin = pkgs.callPackage ./tests/atuin-plugin.nix {};
       lint = pkgs.callPackage ./tests/lint.nix {src = self;};
     });
 
