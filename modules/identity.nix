@@ -14,7 +14,8 @@
   inherit (config.programs.claude-code-nix) hosts;
 
   plugin = pkgs.callPackage ../pkgs/identity-plugin {
-    inherit (cfg) githubOwner hosts;
+    inherit (cfg) githubOwner;
+    inherit hosts;
   };
 
   # The same config runs on every host, so the command picks this host's

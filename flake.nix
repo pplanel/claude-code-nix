@@ -43,6 +43,7 @@
       identity-plugin = pkgs.callPackage ./tests/identity-plugin.nix {
         claude-code = self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code;
       };
+      identity-module = pkgs.callPackage ./tests/identity-module.nix {};
       lint = pkgs.callPackage ./tests/lint.nix {src = self;};
     });
 
