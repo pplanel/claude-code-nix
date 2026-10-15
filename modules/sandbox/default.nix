@@ -104,6 +104,26 @@ self: {
   mkAgentWrapper = name: agent: let
     aclRule = "user:${agent.user} allow list,add_file,search,delete,add_subdirectory,delete_child,readattr,writeattr,readextattr,writeextattr,readsecurity,file_inherit,directory_inherit";
     extraEnvArgs = lib.concatStringsSep " " (lib.mapAttrsToList (k: v: "${lib.escapeShellArg k}=${lib.escapeShellArg v}") agent.extraEnv);
+    # Chosen at build time: a bash `case` on a constant fails shellcheck.
+    resolveKey = {
+      "secure-enclave" = ''
+        echo "[${agent.cliName}] Touch ID required to unlock Secure Enclave key for '$AGENT_NAME'..." >&2
+        RESOLVED_API_KEY="$(age --decrypt -i "${agent.auth.seIdentityFile}" "${agent.auth.encryptedSecretFile}" | tr -d '\n\r')"
+      '';
+      "hkdf-derived" = ''
+        echo "[${agent.cliName}] Touch ID required to derive key for '$AGENT_NAME'..." >&2
+        MASTER_SEED="$(age --decrypt -i "${cfg.masterHkdf.seIdentityFile}" "${cfg.masterHkdf.encryptedMasterSeedFile}" | xxd -p -c 64)"
+        AGENT_HEX_KEY="$(openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt hexkey:"$MASTER_SEED" -kdfopt info:"claude-agent:$AGENT_NAME" HKDF | tr -d ':')"
+        RESOLVED_API_KEY="$(openssl enc -d -aes-256-cbc -pbkdf2 -K "$AGENT_HEX_KEY" -iv 00000000000000000000000000000000 -in "${agent.auth.encryptedSecretFile}" | tr -d '\n\r')"
+        unset MASTER_SEED AGENT_HEX_KEY
+      '';
+      "keychain" = ''
+        RESOLVED_API_KEY="$(/usr/bin/security find-generic-password -s "${agent.auth.keychainService}" -w)"
+      '';
+      "sops-file" = ''
+        RESOLVED_API_KEY="$(sudo -u "$AGENT_USER" /bin/cat "${toString agent.auth.sopsSecretPath}" | tr -d '\n\r')"
+      '';
+    };
   in
     pkgs.writeShellApplication {
       name = agent.cliName;
@@ -134,32 +154,7 @@ self: {
           fi
         done
 
-        RESOLVED_API_KEY=""
-        case "${agent.auth.strategy}" in
-          "secure-enclave")
-            SE_KEY_FILE="${agent.auth.seIdentityFile}"
-            AGE_CIPHERTEXT="${agent.auth.encryptedSecretFile}"
-            echo "[${agent.cliName}] Touch ID required to unlock Secure Enclave key for '$AGENT_NAME'..." >&2
-            RESOLVED_API_KEY="$(age --decrypt -i "$SE_KEY_FILE" "$AGE_CIPHERTEXT" | tr -d '\n\r')"
-            ;;
-          "hkdf-derived")
-            MASTER_SE_KEY="${cfg.masterHkdf.seIdentityFile}"
-            MASTER_SEED_AGE="${cfg.masterHkdf.encryptedMasterSeedFile}"
-            AGENT_CIPHERTEXT="${agent.auth.encryptedSecretFile}"
-            echo "[${agent.cliName}] Touch ID required to derive key for '$AGENT_NAME'..." >&2
-            MASTER_SEED="$(age --decrypt -i "$MASTER_SE_KEY" "$MASTER_SEED_AGE" | xxd -p -c 64)"
-            AGENT_HEX_KEY="$(openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt hexkey:"$MASTER_SEED" -kdfopt info:"claude-agent:$AGENT_NAME" HKDF | tr -d ':')"
-            RESOLVED_API_KEY="$(openssl enc -d -aes-256-cbc -pbkdf2 -K "$AGENT_HEX_KEY" -iv 00000000000000000000000000000000 -in "$AGENT_CIPHERTEXT" | tr -d '\n\r')"
-            unset MASTER_SEED AGENT_HEX_KEY
-            ;;
-          "keychain")
-            RESOLVED_API_KEY="$(/usr/bin/security find-generic-password -s "${agent.auth.keychainService}" -w)"
-            ;;
-          "sops-file")
-            SOPS_PATH="${lib.optionalString (agent.auth.sopsSecretPath != null) agent.auth.sopsSecretPath}"
-            RESOLVED_API_KEY="$(sudo -u "$AGENT_USER" /bin/cat "$SOPS_PATH" | tr -d '\n\r')"
-            ;;
-        esac
+        ${resolveKey.${agent.auth.strategy}}
 
         # /private/tmp, not /tmp: Seatbelt matches resolved paths, and a
         # TMP_DIR under the /tmp symlink never matches (tested).
@@ -168,19 +163,29 @@ self: {
 
         cleanup() {
           local exit_code=$?
-          if [[ "${toString agent.autoGrantWorkspaceACL}" == "1" ]]; then
-            /bin/chmod -R -a "$ACL_RULE" "$TARGET_DIR" 2>/dev/null || true
-            rm -f "$LOCK_FILE"
-          fi
+          ${lib.optionalString agent.autoGrantWorkspaceACL ''
+          /bin/chmod -R -a "$ACL_RULE" "$TARGET_DIR" 2>/dev/null || true
+          rm -f "$LOCK_FILE"
+        ''}
           sudo -u "$AGENT_USER" /bin/rm -rf "$SESSION_TMP" 2>/dev/null || true
           exit "$exit_code"
         }
         trap cleanup EXIT INT TERM HUP QUIT
 
-        if [[ "${toString agent.autoGrantWorkspaceACL}" == "1" ]]; then
+        # The key never goes on a command line: sudo stays alive as root for the
+        # whole session, and any user reads its argv with `ps` (tested). It goes
+        # through stdin into a 0600 file of the agent's, which Claude Code reads
+        # through apiKeyHelper; the file goes away with the session tmp.
+        KEY_FILE="$SESSION_TMP/.anthropic-key"
+        printf '%s' "$RESOLVED_API_KEY" |
+          sudo -u "$AGENT_USER" /usr/bin/env /bin/sh -c 'umask 077 && cat > "$1"' sh "$KEY_FILE"
+        unset RESOLVED_API_KEY
+        SETTINGS_JSON="$(printf '{"apiKeyHelper":"/bin/cat %s"}' "$KEY_FILE")"
+
+        ${lib.optionalString agent.autoGrantWorkspaceACL ''
           echo "$TARGET_DIR" > "$LOCK_FILE"
           /bin/chmod -R +a "$ACL_RULE" "$TARGET_DIR" 2>/dev/null || true
-        fi
+        ''}
 
         PROXY_URL="http://127.0.0.1:${toString agent.proxy.port}"
 
@@ -197,7 +202,6 @@ self: {
               http_proxy="$PROXY_URL" \
               https_proxy="$PROXY_URL" \
               NO_PROXY="localhost,127.0.0.1" \
-              ANTHROPIC_API_KEY="$RESOLVED_API_KEY" \
               ${extraEnvArgs} \
           /usr/bin/sandbox-exec \
             -f "${sandboxProfile}" \
@@ -205,7 +209,7 @@ self: {
             -D AGENT_HOME="$AGENT_HOME" \
             -D TMP_DIR="$SESSION_TMP" \
             -D PROXY_PORT="${toString agent.proxy.port}" \
-            "${lib.getExe cfg.package}" "$@"
+            "${lib.getExe cfg.package}" --settings "$SETTINGS_JSON" "$@"
       '';
     };
 

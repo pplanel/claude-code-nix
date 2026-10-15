@@ -129,7 +129,7 @@ Tested with `sandbox-exec` on macOS 26, watching denials with
 
 ## Open items
 
-1. **The API key is visible in `ps`** (decided, not implemented). The wrapper
+1. **The API key is visible in `ps`** (fixed). The wrapper
    passes `ANTHROPIC_API_KEY=…` as an argument to `sudo … env -i`; `sudo`
    stays alive, as root, for the whole session. Tested with a fake key:
    `nobody` reads it with `ps -axww`, so does any unsandboxed process of any
@@ -139,7 +139,11 @@ Tested with `sandbox-exec` on macOS 26, watching denials with
    the key on a command line. The wrapper writes it to a `0600` file in the
    agent's session tmp, and the agent's Claude Code settings point
    `apiKeyHelper` at it. Preferred over `env_keep`, which would leave the key
-   in the environment every subprocess inherits.
+   in the environment every subprocess inherits. Passed as
+   `--settings '{"apiKeyHelper":"/bin/cat <file>"}'`. Side effect (tested
+   with a fake key): on a 401 Claude Code calls the helper again and retries
+   with backoff, silently and without end, so a revoked key hangs the agent
+   instead of failing.
 2. **Session tmp unresolved** (fixed). `mktemp -d /tmp/claude-…` yielded
    `/tmp/…`, so the agent couldn't write its own tmp. Now `/private/tmp`.
 3. **Claude Code version** (fixed). The module used `pkgs.claude-code` from
