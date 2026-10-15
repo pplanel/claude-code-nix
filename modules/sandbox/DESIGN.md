@@ -175,6 +175,33 @@ Untested; this is the expected behavior, to check in the end-to-end test.
   path, on purpose: it would cross users. If ever wanted, it needs its own
   design (a channel the owner controls), not a hole in the sandbox.
 
+## Tests
+
+`modules/sandbox/tests/run.sh`, by hand, on a Mac, after any change to the
+`.sb` files or to how `default.nix` composes them. Not part of
+`nix flake check`: nix builds run inside a sandbox, and `sandbox-exec` can't
+nest.
+
+- `agents.nix` builds the wrappers for two test agents (clone + full home;
+  in-place + state-only); `run.sh` composes their session profiles the way
+  `wrapper.sh` does, in a scratch tree under `/private/tmp`.
+- **File cases**: workspace writes, `.envrc`/`.git` allowed in clone and
+  denied in in-place (with the `mv` bypass), grants, credentials winning over
+  a grant of the whole home, both home scopes, `claude --version`.
+- **Network cases** (`net-probe.py`): every way out, run outside the sandbox
+  first as a control. A target unreachable even outside is skipped; a refused
+  connection counts as reachable outside and as let through inside, so only
+  a real denial passes. Targets are found on the machine (gateway, a
+  Tailscale peer, the Unix sockets that exist).
+- Exit status is the number of wrong results.
+- It runs as the owner, so it tests Seatbelt alone; the agent's user is a
+  second barrier in real use.
+- Checked against a mutation: reopening `localhost:*` in the base profile
+  gives 2 wrong results.
+
+Last run (arrakis, 2026-10-15): 38 ok, 0 wrong, 2 skipped (no `~/.aws`,
+`~/.gnupg`).
+
 ## What the tests taught (SBPL)
 
 Tested with `sandbox-exec` on macOS 26, watching denials with
