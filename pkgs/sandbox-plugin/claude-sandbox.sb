@@ -1,0 +1,101 @@
+(version 1)
+(deny default)
+
+;; Dynamic parameters passed by each agent's wrapper:
+;; -D TARGET_DIR="/path/to/workspace"
+;; -D AGENT_HOME="/Users/_claude_<name>"
+;; -D TMP_DIR="/tmp/claude-<name>.XXXXXX"
+;; -D PROXY_PORT="8888"
+
+;; 1. PROCESS & EXECUTION RULES
+(allow process-exec process-fork)
+(allow signal (target same-sandbox))
+(allow process-info* (target same-sandbox))
+(allow sysctl-read)
+(allow file-ioctl)
+
+(deny dynamic-code-generation)
+(deny process-info-codesignature)
+
+;; 2. MACH IPC & SYSTEM SERVICES
+;; Omits com.apple.ctkd.token-client and CoreAuthentication so sandboxed agents
+;; can NEVER query the Secure Enclave or Touch ID directly.
+(allow mach-lookup
+  (global-name "com.apple.system.opendirectoryd.libinfo")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
+  (global-name "com.apple.system.logger")
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.trustd.agent")
+  (global-name "com.apple.securityd.xpc")
+  (global-name "com.apple.CoreServices.coreservicesd")
+  (global-name "com.apple.SystemConfiguration.configd")
+  (global-name "com.apple.bsd.dirhelper"))
+
+(allow ipc-posix-shm-read-data
+  (ipc-posix-name "apple.shm.notification_center"))
+
+;; 3. FILESYSTEM READ ACCESS
+(allow file-read-metadata)
+
+(allow file-read*
+  (literal "/")
+  (subpath "/nix")
+  (subpath "/usr/lib")
+  (subpath "/usr/bin")
+  (subpath "/usr/share")
+  (subpath "/bin")
+  (subpath "/sbin")
+  (subpath "/System/Library")
+  (subpath "/Library/Preferences")
+  (subpath "/Library/Keychains/System.keychain")
+  (subpath "/private/etc/ssl")
+  (literal "/private/etc/resolv.conf")
+  (literal "/private/etc/hosts")
+  (literal "/private/etc/passwd")
+  (literal "/private/etc/group")
+  (literal "/private/etc/localtime")
+  (subpath "/dev"))
+
+(allow file-read*
+  (subpath (param "AGENT_HOME"))
+  (subpath (param "TARGET_DIR"))
+  (subpath (param "TMP_DIR")))
+
+(deny file-read-data
+  (regex #"^/Users/[^/]+/\.(ssh|aws|gnupg|kube|config|netrc|env)")
+  (subpath "/var/lib/sops-nix"))
+
+;; 4. FILESYSTEM WRITE ACCESS
+(allow file-write*
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/random")
+  (literal "/dev/urandom")
+  (literal "/dev/tty")
+  (literal "/dev/dtracehelper")
+  (regex #"^/dev/ttys[0-9]+$"))
+
+(allow file-write*
+  (subpath (param "TARGET_DIR"))
+  (subpath (param "TMP_DIR"))
+  (subpath (string-append (param "AGENT_HOME") "/.claude"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/claude"))
+  (subpath (string-append (param "AGENT_HOME") "/.cache"))
+  (subpath (string-append (param "AGENT_HOME") "/.npm"))
+  (literal (string-append (param "AGENT_HOME") "/.claude.json")))
+
+;; 5. SELF-MODIFICATION & HOOK ESCAPE PROTECTIONS
+(deny file-write*
+  (subpath (string-append (param "TARGET_DIR") "/.git/hooks"))
+  (literal (string-append (param "TARGET_DIR") "/.git/config"))
+  (subpath (string-append (param "TARGET_DIR") "/.claude/commands"))
+  (literal (string-append (param "TARGET_DIR") "/.claude/settings.local.json")))
+
+;; 6. NETWORK ACCESS (STRICT PER-AGENT LOCAL PROXY)
+(allow network-outbound
+  (remote tcp (string-append "localhost:" (param "PROXY_PORT")))
+  (literal "/private/var/run/mDNSResponder"))
+
+(allow network-bind (local ip "localhost:*"))
+(allow network-inbound (local ip "localhost:*"))
+(allow network-outbound (remote ip "localhost:*"))
