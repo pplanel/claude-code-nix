@@ -336,9 +336,28 @@ no profile test could:
 - Every `sudo -u <agent>` started in the owner's directory, which the agent
   can't read, and its shell printed `getcwd: Permission denied`. The wrapper
   `cd /`s once all paths are resolved.
-- Working, as designed: the owner can't enter the agent's home (`0700`); the
-  owner's repo reached the agent's clone through a bundle, cloned sandboxed;
-  the subscription token was read from the keychain and handed over.
+- Interactive Claude Code checks `platform.claude.com` at start and won't
+  open without it (`-p` goes straight to `api.anthropic.com`): `claude.com`
+  joined the default allowlist.
+- The agent's git was `/usr/bin/git`, Apple's xcrun shim, which fails in the
+  sandbox. Claude Code's shell is zsh, which reads nix-darwin's
+  `/etc/zshenv` (a `/nix/store` link the sandbox allows) and rebuilds PATH
+  around `/etc/profiles/per-user/$USER/bin` before `/usr/bin`, dropping the
+  wrapper's PATH. bash -l keeps it only because the sandbox denies
+  `/etc/profile`. The agent's tools now also go in its per-user profile
+  (`users.users.<user>.packages`).
+
+The full run, after those fixes (claude-teste on caladan, oauth-token from
+the keychain, clone mode):
+
+| Step | Result |
+|---|---|
+| `claude-teste -p` answers through the subscription and the proxy | `ok`, 6 s; second session fetches, no re-clone |
+| a host off the allowlist | the proxy refuses the CONNECT: `403` |
+| a commit in the agent's clone | back in the owner's repo as `claude-teste/teste-agente`; the owner's tree untouched |
+| the agent's user reads the owner's home, no sandbox | `Permission denied` |
+| the token in any process's arguments (`ps -axww`), mid-session | `0` |
+| `--read <repo>` / no grant / ACLs after the session | reads / `EACCES` / `0` left |
 
 And outside SBPL:
 
@@ -371,11 +390,10 @@ And outside SBPL:
 
 ## Open
 
-1. **End-to-end test**: a real agent user, a real tinyproxy, and claude
-   reaching the API through it; then clone mode's hand-over and hand-back,
-   in-place ACLs and `--read` as the agent's user. Needs the module enabled on
-   a machine. Tested so far: the composed profiles (15 cases, both modes), the
-   ACL rules (apply, inherit, remove), the key handling, the build.
+1. **In-place mode end to end**: the run on caladan covered clone mode,
+   `--read` and oauth-token; in-place (the owner's tree, ACLs on it, the
+   `.git`/hook-file denies as the agent's user) hasn't run as a real agent
+   yet, nor the secure-enclave and hkdf strategies.
 2. The `hkdf-derived` strategy uses AES-CBC with a zero IV.
 3. Secure Enclave keys work only in the context that created them (login
    session vs daemon), and `any-biometry` blocks anything unattended.
