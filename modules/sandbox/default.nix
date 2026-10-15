@@ -234,18 +234,21 @@ self: {
     filterFile = pkgs.writeText "claude-proxy-${name}.filter" (lib.concatStringsSep "\n" agent.proxy.allowedDomains);
   in
     # launchd starts it as root; it drops to nobody (macOS has no _nobody).
+    # No BindSame: it binds the outgoing connection to the address the request
+    # came in on, 127.0.0.1, so nothing could get out (tested on caladan:
+    # "Could not establish a connection to api.anthropic.com:443", 500).
+    # FilterType ere, not FilterExtended: deprecated in tinyproxy 1.11.
     pkgs.writeText "tinyproxy-claude-${name}.conf" ''
       User nobody
       Group nobody
       Port ${toString agent.proxy.port}
       Listen 127.0.0.1
-      BindSame yes
       Timeout 600
       LogLevel Info
       MaxClients 25
       Filter "${filterFile}"
       FilterURLs Off
-      FilterExtended On
+      FilterType ere
       FilterCaseSensitive Off
       FilterDefaultDeny Yes
       ConnectPort 443
@@ -521,7 +524,7 @@ in {
     environment.etc."sudoers.d/claude-sandbox".text = lib.concatStringsSep "\n" (
       lib.mapAttrsToList (_: a: ''
         Defaults:${a.user} !lecture
-        %admin ALL=(${a.user}) NOPASSWD: /usr/bin/mktemp, /bin/rm, /usr/bin/env, /usr/bin/test, /bin/cat
+        %admin ALL=(${a.user}) NOPASSWD: /usr/bin/mktemp, /bin/rm, /usr/bin/env, /bin/test, /bin/cat
       '')
       enabledAgents
     );

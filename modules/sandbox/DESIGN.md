@@ -320,6 +320,26 @@ Tested with `sandbox-exec` on macOS 26, watching denials with
   others`), even through a direct `sysctl KERN_PROCARGS2`. Outside the
   sandbox any user reads any process's arguments.
 
+The end-to-end test on caladan (a real agent user, 2026-10-15) found what
+no profile test could:
+
+- `/usr/bin/test` doesn't exist on macOS (`/bin/test` does): every "can the
+  agent enter this directory?" answered no, so a second session would clone
+  over its own clone, and grants would add ACLs on every parent. The sudoers
+  entry named the wrong path too.
+- macOS has no `_nobody` user; tinyproxy runs as `nobody`.
+- tinyproxy's `BindSame yes` bound the outgoing connection to the address
+  the request came in on, `127.0.0.1`, so the proxy could reach nothing:
+  "Could not establish a connection to api.anthropic.com:443", `curl -x`
+  through it got a 500. Removed. `FilterExtended` is deprecated in tinyproxy
+  1.11; `FilterType ere` instead.
+- Every `sudo -u <agent>` started in the owner's directory, which the agent
+  can't read, and its shell printed `getcwd: Permission denied`. The wrapper
+  `cd /`s once all paths are resolved.
+- Working, as designed: the owner can't enter the agent's home (`0700`); the
+  owner's repo reached the agent's clone through a bundle, cloned sandboxed;
+  the subscription token was read from the keychain and handed over.
+
 And outside SBPL:
 
 - macOS ACLs: `chmod -R +a` with `file_inherit,directory_inherit` maps `list`
