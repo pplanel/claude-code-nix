@@ -140,6 +140,41 @@ The agent's environment is built from nothing (`env -i`): `HOME`, `USER`,
 `PATH` (claude, git, ripgrep, fd, nodejs, `extraPackages`), the proxy
 variables, git's author and committer, `TERM`, `extraEnv`.
 
+## Concurrency and subagents
+
+Untested; this is the expected behavior, to check in the end-to-end test.
+
+- **Sessions of different agents** never interfere: each has its own user,
+  ACLs, lock files and proxy.
+- **Sessions of the same agent** run side by side in clone mode without
+  `--read`: they use no ACL. Only one session per agent at a time may hold
+  ACLs (in-place, or any `--read`), even in different projects: the ACLs that
+  matter are on the shared parents (`/Users/<owner>`, `~/src`…), and one
+  session's cleanup would remove them from under the other. A reference count
+  per ACL would lift this, at the cost of shared state with locking
+  (macOS has no `flock(1)`) and the risk of ACLs left behind in the owner's
+  home.
+- **`--read` as a copy** instead of ACLs is an option to weigh: the wrapper,
+  as the owner, copies each granted path into the session tmp, read-only. No
+  ACL touches the owner's home, the user layer stays independent, and only
+  in-place would need the one-session limit. Cost: a snapshot from the
+  session's start (later changes don't show), and time and space for big
+  paths.
+- **Subagents** (Claude Code's Agent tool) run inside the session that spawned
+  them, as the same process or its children. Seatbelt is inherited and can't
+  be left, so they have the session's user, profile and grants, and nothing
+  more: they don't go through the wrapper, add no ACL, take no lock, and
+  can't widen access (the agent's user has no sudo, and the sandbox wouldn't
+  allow it). Only the owner decides grants, when the session starts.
+- **Subagents with `isolation: worktree`** create a git worktree, writing
+  `.git/worktrees/` and the worktree's files (possibly under `.claude/`).
+  Expected to work in clone mode, where both are writable; expected to fail
+  in in-place mode, where `.git` and `.claude` are write-denied on purpose.
+- **Parallel subagents share the agent's proxy**, whose `MaxClients` is 25.
+- **One agent delegating to another** (claude-liet asking claude-outro) has no
+  path, on purpose: it would cross users. If ever wanted, it needs its own
+  design (a channel the owner controls), not a hole in the sandbox.
+
 ## What the tests taught (SBPL)
 
 Tested with `sandbox-exec` on macOS 26, watching denials with
@@ -224,6 +259,7 @@ And outside SBPL:
    privileged side), but the list of other commands is decoration.
 5. Clone mode bundles every branch at every start and exit; incremental
    bundles would do for big repositories.
-6. `in-place` and `--read` sessions of the same agent run one at a time.
+6. `in-place` and `--read` sessions of the same agent run one at a time (see
+   Concurrency and subagents: reference counts, or `--read` as a copy).
 7. Narrow `syscall-unix`, `syscall-mach` and `system-fcntl` to what Claude
    Code and its tools use.
