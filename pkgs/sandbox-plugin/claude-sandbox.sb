@@ -14,8 +14,11 @@
 (allow sysctl-read)
 (allow file-ioctl)
 
-(deny dynamic-code-generation)
+;; Claude Code runs on Bun (JavaScriptCore), which needs JIT. Denying it adds
+;; nothing: the agent can already write and exec binaries in TARGET_DIR/TMP_DIR.
+(allow dynamic-code-generation)
 (deny process-info-codesignature)
+(allow process-info-codesignature (target self))
 
 ;; 2. MACH IPC & SYSTEM SERVICES
 ;; Omits com.apple.ctkd.token-client and CoreAuthentication so sandboxed agents
@@ -46,6 +49,7 @@
   (subpath "/bin")
   (subpath "/sbin")
   (subpath "/System/Library")
+  (subpath "/System/Volumes/Preboot/Cryptexes/OS")
   (subpath "/Library/Preferences")
   (subpath "/Library/Keychains/System.keychain")
   (subpath "/private/etc/ssl")
@@ -54,6 +58,7 @@
   (literal "/private/etc/passwd")
   (literal "/private/etc/group")
   (literal "/private/etc/localtime")
+  (subpath "/private/var/db/timezone")
   (subpath "/dev"))
 
 (allow file-read*

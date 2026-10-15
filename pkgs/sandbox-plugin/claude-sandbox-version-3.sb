@@ -1,0 +1,177 @@
+(version 3)
+(deny default)
+
+;; Dynamic parameters passed by each agent's wrapper:
+;; -D TARGET_DIR="/path/to/workspace"
+;; -D AGENT_HOME="/Users/_claude_<name>"
+;; -D TMP_DIR="/private/tmp/claude-<name>.XXXXXX"
+;; -D PROXY_PORT="8888"
+
+;; ============================================================================
+;; 0. VERSION 3 HELPERS (APFS Firmlink Dual-Path Matcher)
+;; ============================================================================
+;; In Seatbelt v3, vnode filters may evaluate either the synthetic root path
+;; (/Users/...) or the underlying APFS Data volume (/System/Volumes/Data/Users/...).
+(define (subpath-firmlink p)
+  (require-any
+    (subpath p)
+    (subpath (string-append "/System/Volumes/Data" p))))
+
+(define (literal-firmlink p)
+  (require-any
+    (literal p)
+    (literal (string-append "/System/Volumes/Data" p))))
+
+;; ============================================================================
+;; 1. PROCESS, DYLD & EXECUTION RULES (Version 3 Semantics)
+;; ============================================================================
+;; process-exec* in v3 covers both binary execve() and process-exec-interpreter (#! shebangs in /nix/store)
+(allow process-exec* process-fork)
+(allow signal (target same-sandbox))
+(allow process-info* (target same-sandbox))
+(allow file-ioctl)
+
+;; Required in v3 for dyld to mmap() shared libraries (.dylib) from /nix/store and /usr/lib
+(allow file-map-executable
+  (subpath "/nix/store")
+  (subpath "/System/Library")
+  (subpath "/usr/lib"))
+
+;; Required on Apple Silicon (aarch64-darwin) for Node.js / V8 MAP_JIT execution
+(allow dynamic-code-generation)
+
+;; Prevent sandbox escape via task_for_pid / debugging / code-signature tampering
+(deny process-info-codesignature)
+(deny nvram*)
+(deny iokit-open-user-client)
+(deny iokit-open-service)
+
+;; Scoped sysctl reads (v3 prefers explicit sysctl prefixes for Node/libuv/Rust)
+(allow sysctl-read
+  (sysctl-name-prefix "hw.")
+  (sysctl-name-prefix "kern.")
+  (sysctl-name-prefix "vm.")
+  (sysctl-name-prefix "machdep.")
+  (sysctl-name-prefix "net.routetable")
+  (sysctl-name "sysctl.proc_cputype"))
+
+;; ============================================================================
+;; 2. MACH IPC & POSIX SHM (Minimal v3 Allowlist)
+;; ============================================================================
+;; Deliberately omits:
+;; - com.apple.ctkd.token-client (Secure Enclave token daemon)
+;; - com.apple.CoreAuthentication.* (Touch ID / LocalAuthentication)
+;; - com.apple.securityd.ckks (iCloud Keychain sync)
+(allow mach-lookup
+  (global-name "com.apple.system.opendirectoryd.libinfo")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
+  (global-name "com.apple.system.logger")
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.trustd.agent")
+  (global-name "com.apple.trustd")
+  (global-name "com.apple.securityd.xpc")
+  (global-name "com.apple.CoreServices.coreservicesd")
+  (global-name "com.apple.SystemConfiguration.configd")
+  (global-name "com.apple.bsd.dirhelper")
+  (global-name "com.apple.distributed_notifications@Uv3"))
+
+(allow ipc-posix-shm-read-data
+  (ipc-posix-name "apple.shm.notification_center"))
+
+;; Pseudo-terminal allocation for interactive subshells spawned by Claude Code
+(allow pseudo-tty)
+
+;; ============================================================================
+;; 3. FILESYSTEM READ ACCESS
+;; ============================================================================
+;; Allow stat()/lstat()/readlink() metadata resolution along directory trees
+(allow file-read-metadata)
+
+(allow file-read*
+  (literal "/")
+  (literal "/System/Volumes/Data")
+  (subpath "/nix")
+  (subpath "/usr/lib")
+  (subpath "/usr/bin")
+  (subpath "/usr/share")
+  (subpath "/bin")
+  (subpath "/sbin")
+  (subpath "/System/Library")
+  (subpath "/System/Cryptexes")
+  (subpath "/Library/Preferences")
+  (subpath "/Library/Keychains/System.keychain")
+  (subpath "/private/etc/ssl")
+  (literal "/private/etc/resolv.conf")
+  (literal "/private/var/run/resolv.conf")
+  (literal "/private/etc/hosts")
+  (literal "/private/etc/passwd")
+  (literal "/private/etc/group")
+  (literal "/private/etc/localtime")
+  (subpath "/dev"))
+
+;; Read access strictly limited to THIS agent's home, workspace, and session tmp
+(allow file-read*
+  (subpath-firmlink (param "AGENT_HOME"))
+  (subpath-firmlink (param "TARGET_DIR"))
+  (subpath-firmlink (param "TMP_DIR")))
+
+;; HARD DENY: Block reading other users' or other agents' sensitive dotfiles
+;; Matches both /Users/... and /System/Volumes/Data/Users/...
+(deny file-read-data
+  (regex #"^(/System/Volumes/Data)?/Users/[^/]+/\.(ssh|aws|gnupg|kube|config|netrc|env|claude-se)")
+  (subpath-firmlink "/var/lib/sops-nix")
+  (subpath-firmlink "/private/var/lib/sops-nix"))
+
+;; ============================================================================
+;; 4. FILESYSTEM WRITE ACCESS
+;; ============================================================================
+(allow file-write*
+  (literal "/dev/null")
+  (literal "/dev/zero")
+  (literal "/dev/random")
+  (literal "/dev/urandom")
+  (literal "/dev/tty")
+  (literal "/dev/ptmx")
+  (literal "/dev/dtracehelper")
+  (regex #"^/dev/ttys[0-9]+$"))
+
+(allow file-write*
+  (subpath-firmlink (param "TARGET_DIR"))
+  (subpath-firmlink (param "TMP_DIR"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.claude"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.config/claude"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.cache"))
+  (subpath-firmlink (string-append (param "AGENT_HOME") "/.npm"))
+  (literal-firmlink (string-append (param "AGENT_HOME") "/.claude.json")))
+
+;; ============================================================================
+;; 5. SELF-MODIFICATION & HOOK ESCAPE PROTECTIONS
+;; ============================================================================
+;; In Seatbelt v3, later rules take precedence when specificity matches.
+;; Placing these (deny file-write*) rules AFTER Section 4 guarantees they
+;; override the workspace write permission.
+(deny file-write*
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.git/hooks"))
+  (literal-firmlink (string-append (param "TARGET_DIR") "/.git/config"))
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude/commands"))
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude/agents"))
+  (literal-firmlink (string-append (param "TARGET_DIR") "/.claude/settings.json"))
+  (literal-firmlink (string-append (param "TARGET_DIR") "/.claude/settings.local.json")))
+
+;; ============================================================================
+;; 6. NETWORK ACCESS (STRICT PER-AGENT LOCAL PROXY)
+;; ============================================================================
+;; Note: The previous profile had `(allow network-outbound (remote ip "localhost:*"))`
+;; at the bottom. If another local service was listening on localhost, the agent
+;; could reach it. Below, we tighten it depending on whether you need localhost dev servers:
+
+;; 6A. Always allow talking to this agent's dedicated Tinyproxy + mDNSResponder
+(allow network-outbound
+  (remote tcp (string-append "localhost:" (param "PROXY_PORT")))
+  (literal "/private/var/run/mDNSResponder"))
+
+;; 6B. Localhost binding/connections for test runners (restricted to unprivileged ports >= 1024)
+(allow network-bind (local tcp "localhost:1024-65535"))
+(allow network-inbound (local tcp "localhost:1024-65535"))
+(allow network-outbound (remote tcp "localhost:1024-65535"))
+
