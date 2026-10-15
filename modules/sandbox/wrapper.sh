@@ -5,6 +5,7 @@
 # `set -euo pipefail`) that defines:
 #   CLI_NAME AGENT_NAME AGENT_USER AGENT_HOME PROXY_PORT CLAUDE_BIN
 #   WORKSPACE_MODE         clone | in-place
+#   AUTH_KIND              api-key | oauth-token
 #   ALLOW_RUNTIME_GRANTS   1 | 0
 #   PROFILE_HEAD           claude-sandbox.sb (+ in-place.sb in in-place mode)
 #   PROFILE_TAIL           sensitive.sb + the agent's home read
@@ -236,14 +237,19 @@ trap cleanup EXIT INT TERM HUP QUIT
   cat "$PROFILE_TAIL"
 } | as_agent_write "$SESSION_TMP/profile.sb"
 
-# The key never goes on a command line: sudo stays alive as root for the
-# whole session, and any user reads its argv with `ps` (tested). It goes
-# through stdin into a 0600 file of the agent's, which Claude Code reads
-# through apiKeyHelper; the file goes away with the session tmp.
+# The credential never goes on a command line: sudo stays alive as root for
+# the whole session, and any user reads its argv with `ps` (tested). It goes
+# through stdin into a 0600 file of the agent's, deleted with the session
+# tmp, and from there to Claude Code:
+#   api-key      through apiKeyHelper (--settings), which cats the file
+#   oauth-token  on file descriptor 3, opened inside the sandbox, named by
+#                CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: not in the
+#                environment the agent's subprocesses inherit (tested: a
+#                fake token is read and refused, "401 OAuth access token
+#                is invalid", and fails at once instead of retrying)
 KEY_FILE="$SESSION_TMP/.anthropic-key"
 printf '%s' "$RESOLVED_API_KEY" | as_agent_write "$KEY_FILE"
 unset RESOLVED_API_KEY
-SETTINGS_JSON="$(printf '{"apiKeyHelper":"/bin/cat %s"}' "$KEY_FILE")"
 
 if [[ "$WORKSPACE_MODE" == "in-place" ]]; then
   grant_traverse "$WORK_TREE"
@@ -276,4 +282,16 @@ fi
 
 # The owner's directory may be closed to the agent's user; sudo starts there.
 cd /
-run_sandboxed "$START_DIR" "$CLAUDE_BIN" --settings "$SETTINGS_JSON" "${CLAUDE_ARGS[@]}"
+case "$AUTH_KIND" in
+api-key)
+  run_sandboxed "$START_DIR" "$CLAUDE_BIN" \
+    --settings "$(printf '{"apiKeyHelper":"/bin/cat %s"}' "$KEY_FILE")" "${CLAUDE_ARGS[@]}"
+  ;;
+oauth-token)
+  # shellcheck disable=SC2016 # expanded by the sandboxed sh, not here
+  run_sandboxed "$START_DIR" /bin/sh -c \
+    'exec 3<"$1" && shift && CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR=3 exec "$@"' \
+    sh "$KEY_FILE" "$CLAUDE_BIN" "${CLAUDE_ARGS[@]}"
+  ;;
+*) die "unknown auth kind: $AUTH_KIND" ;;
+esac

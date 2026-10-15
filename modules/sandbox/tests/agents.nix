@@ -33,6 +33,12 @@
               workspace.mode = "in-place";
               homeReadScope = "state-only";
             };
+            # A subscription token instead of an API key (claude setup-token).
+            oauth = {
+              uid = 604;
+              proxy.port = 8804;
+              auth.kind = "oauth-token";
+            };
             # Every network option on, with the ports tests/run.sh probes
             # (its PORT is 18901: +1 another local port, +2 the listen test).
             net = {

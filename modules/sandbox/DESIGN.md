@@ -45,6 +45,7 @@ services.claude-sandbox = {
     homeReadScope = "full";          # default; or "state-only"
     git = { name = "liet"; email = "liet@localhost"; };
     network.listenPorts = [ 3000 ];  # everything network is closed by default
+    auth.kind = "oauth-token";         # or "api-key" (default)
     auth.strategy = "secure-enclave";  # or hkdf-derived, keychain, sops-file
   };
 };
@@ -125,6 +126,26 @@ needs AWDL, Bonjour, listening and its control socket; claude-mesh listens on
 defense in depth, is a separate idea. claude-mesh's 7480 answering any local
 process without authentication is pplanel/claude-mesh#1.
 
+### `auth`
+
+`auth.kind` says what the stored credential is; `auth.strategy` where it's
+kept (Secure Enclave by default, `claude-agent-init` stores it).
+
+- **`api-key`** (default): an Anthropic API key. Claude Code gets it through
+  `apiKeyHelper` (`--settings '{"apiKeyHelper":"/bin/cat <file>"}'`).
+- **`oauth-token`**: a long-lived token from `claude setup-token`, so the
+  agent runs on the owner's Claude subscription (and its usage limits).
+  Claude Code gets it on file descriptor 3, opened by a `sh` inside the
+  sandbox, and named by `CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR`: the token
+  is in no environment and on no command line. Tested: with no credential
+  Claude Code says "Not logged in"; with a fake token on the descriptor it
+  reads it and the API answers "401 OAuth access token is invalid", at once
+  (no retry loop, unlike `apiKeyHelper`).
+
+Either way the credential reaches the agent's session tmp through stdin, as
+a `0600` file of the agent's, deleted with the tmp; the agent's own processes
+can read it, as they can use it.
+
 ### `homeReadScope`
 
 The home is the agent's own, so it reads all of it (`full`). In clone mode the
@@ -164,8 +185,9 @@ compile, so the profile fails closed.
 6. Add the ACLs (in-place workspace, grants), each recorded in the lock file.
 7. Clone mode: hand the owner's repo over.
 8. Start claude as the agent: `sudo -u <agent> env -i <agent env>
-   sandbox-exec -f <profile> -D … sh -c 'cd <dir> && exec claude
-   --settings {"apiKeyHelper": …}'`.
+   sandbox-exec -f <profile> -D … sh -c 'cd <dir> && exec claude …'`, with
+   `--settings {"apiKeyHelper": …}` (api-key) or the token on fd 3
+   (oauth-token).
 9. At exit: hand the agent's branches back (clone), remove the ACLs, delete
    the session tmp (and the key with it).
 
