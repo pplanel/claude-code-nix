@@ -186,10 +186,23 @@ self: {
       };
 
       auth = {
+        kind = mkOption {
+          type = types.enum ["api-key" "oauth-token"];
+          default = "api-key";
+          description = ''
+            What the stored credential is.
+            - api-key: an Anthropic API key, handed to Claude Code through
+              apiKeyHelper (--settings).
+            - oauth-token: a long-lived token from `claude setup-token`, so the
+              agent uses the owner's Claude subscription. Handed to Claude
+              Code on a file descriptor (CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR),
+              never in its environment or on a command line.
+          '';
+        };
         strategy = mkOption {
           type = types.enum ["secure-enclave" "hkdf-derived" "keychain" "sops-file"];
           default = "secure-enclave";
-          description = "Where the wrapper gets the agent's API key at each start.";
+          description = "Where the wrapper gets the agent's credential (auth.kind) at each start.";
         };
         seIdentityFile = mkOption {
           type = types.str;
@@ -376,6 +389,7 @@ self: {
           PROXY_PORT=${toString agent.proxy.port}
           CLAUDE_BIN=${lib.escapeShellArg (lib.getExe cfg.package)}
           WORKSPACE_MODE=${agent.workspace.mode}
+          AUTH_KIND=${agent.auth.kind}
           ALLOW_RUNTIME_GRANTS=${
             if agent.read.allowRuntimeGrants
             then "1"
@@ -397,7 +411,8 @@ self: {
     name = "claude-agent-init";
     runtimeInputs = [pkgs.age pkgs.age-plugin-se pkgs.openssl pkgs.xxd pkgs.coreutils];
     text = ''
-      # Stores an agent's API key for the secure-enclave (--se, default) or
+      # Stores an agent's credential (an API key, or a `claude setup-token`
+      # token for auth.kind = "oauth-token") for the secure-enclave (--se, default) or
       # hkdf-derived (--hkdf) strategy, in ~/.config/claude-se. Run it in a
       # login session: an enclave key works only in the context that made it.
       AGENT_NAME="''${1:-}"
@@ -406,7 +421,7 @@ self: {
 
       SE_DIR="$HOME/.config/claude-se"
       mkdir -p "$SE_DIR" && chmod 700 "$SE_DIR"
-      read -r -s -p "Enter ANTHROPIC_API_KEY for agent '$AGENT_NAME': " API_KEY
+      read -r -s -p "Paste the API key or setup-token token for agent '$AGENT_NAME': " API_KEY
       echo ""
 
       if [[ "$MODE" == "--se" ]]; then
