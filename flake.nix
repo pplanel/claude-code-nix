@@ -38,6 +38,9 @@
       home-manager.sharedModules = [self.homeManagerModules.default];
     };
 
+    # services.claude-sandbox: agents as isolated users in Seatbelt.
+    darwinModules.sandbox = import ./modules/sandbox self;
+
     checks = forAll (pkgs: {
       settings-merge = pkgs.callPackage ./tests/settings-merge.nix {};
       identity-plugin = pkgs.callPackage ./tests/identity-plugin.nix {
