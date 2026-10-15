@@ -173,6 +173,22 @@ What it does:
 
 `nix flake check` builds the plugin for example hosts, tests both hooks' answers, and runs `claude plugin validate` on it.
 
+### Atuin
+
+`atuin` loads a plugin in the instances you list that records every Bash command Claude runs in [atuin](https://atuin.sh)'s history, authored `<agent>/<session title>`:
+
+```nix
+programs.atuin.enable = true;                          # home-manager's atuin
+programs.claude-code-nix.atuin.instances = ["claude-personal"];
+```
+
+- **The author** is `CLAUDE_AGENT_NAME` (the identity instances export it from `hosts.<host>.agentName`), else the host's name, then `/` and the session's latest title, `/rename` included. A session with no title yet is just the name.
+- **It runs home-manager's atuin** (`programs.atuin.package`), so Claude's commands land in the same history as yours, and is on whenever that atuin is. The atuin must read `ATUIN_HISTORY_AUTHOR` for the author to show.
+- **It's a plugin, not settings**: it needs no `atuin hook claude-code` entries in `settings.json` (drop hand-added ones, or each command is recorded twice).
+- **The title comes from the transcript**, which can be large: each session caches its title and how far it has read, and only reads what was appended since.
+
+`nix flake check` runs the hook against a fake atuin: titles, renames, a line still being written, the host fallback, the JSON handed on unchanged.
+
 ### Layout
 
 `programs.claude-code-nix.layout` gives `{ <name> = { command; configDir; }; }`, with absolute paths, for tools that need to know where each account lives.

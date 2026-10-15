@@ -112,7 +112,7 @@ self: {
       ''}${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") i.extraEnv)}${i.extraSetup}exec ${lib.getExe cfg.package} ${lib.escapeShellArgs (pluginArgs i ++ i.extraArgs)} "$@"
     '';
 in {
-  imports = [./hosts.nix ./identity.nix (import ./mesh.nix self)];
+  imports = [./hosts.nix ./identity.nix ./atuin.nix (import ./mesh.nix self)];
 
   options.programs.claude-code-nix = {
     enable = lib.mkEnableOption "named Claude Code instances";

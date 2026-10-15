@@ -9,6 +9,7 @@
   shellcheck,
   src,
 }: let
+  atuinPlugin = callPackage ../pkgs/atuin-plugin {};
   plugin = callPackage ../pkgs/identity-plugin {
     githubOwner = "someone";
     hosts = {
@@ -24,7 +25,8 @@ in
     statix check -o errfmt .
     deadnix --fail .
     shellcheck --severity=warning \
-      ${plugin}/scripts/identity.sh ${plugin}/scripts/host-tag.sh pkgs/claude-code/update.sh
+      ${plugin}/scripts/identity.sh ${plugin}/scripts/host-tag.sh pkgs/claude-code/update.sh \
+      ${atuinPlugin}/scripts/atuin-author.sh
     set +x
     touch $out
   ''
