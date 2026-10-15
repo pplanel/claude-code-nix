@@ -44,6 +44,7 @@ services.claude-sandbox = {
     read.allowRuntimeGrants = true;  # default
     homeReadScope = "full";          # default; or "state-only"
     git = { name = "liet"; email = "liet@localhost"; };
+    network.listenPorts = [ 3000 ];  # everything network is closed by default
     auth.strategy = "secure-enclave";  # or hkdf-derived, keychain, sops-file
   };
 };
@@ -92,6 +93,38 @@ and opened twice: ACLs (`search` on each parent the agent can't enter, read
 inside) and one `(allow file-read* (subpath …))` in the session profile.
 Credentials stay denied whatever the grant (`sensitive.sb` comes after).
 
+### `network`
+
+Closed by default: the agent's proxy is its only way out. SBPL filters
+network rules by port, with the host either `localhost` or `*`; no rule can
+name one LAN host or one interface (`awdl0`, `en0`, `utun*`). So each option
+opens exactly this, and the tests check it (the `net` test agent has all of
+them on):
+
+| Option | Opens |
+|---|---|
+| `localhostPorts` | connecting to those local ports (TCP and UDP) |
+| `listenPorts` | listening on those local ports, and connecting to them |
+| `directPorts` | those ports on **any** host, without the proxy: LAN, Tailscale, AWDL peers, the internet. Peer-to-peer traffic needs this. |
+| `bonjour` | mDNSResponder's socket, `com.apple.dnssd.service`, UDP 5353 in and out to any host. mDNSResponder also serves every DNS lookup, so this **reopens DNS**; and UDP 5353 reaches AWDL peers too. |
+| `unixSockets` | those sockets, by real path (`/private/var/run/…`) |
+| `extraRules` | raw SBPL, appended after the above |
+
+Not offered: anything that would let the agent reach the owner's own
+services (claude-mesh, airshell-proxy, other agents' proxies) except by
+listing their port or socket explicitly; and Wi-Fi/Bluetooth daemons
+(`airportd`, `wirelessproxd`, BLE), which give scanning and control, not
+traffic, and have no tested use (`extraRules` can add them). A daemon socket
+in `unixSockets` can be a way out of the sandbox: the nix daemon builds what
+it's asked (fixed-output derivations download outside the proxy), docker
+runs containers.
+
+The owner's infrastructure isn't meant to run in this profile: airshell-proxy
+needs AWDL, Bonjour, listening and its control socket; claude-mesh listens on
+7480 and reads the whole Claude config dir. A profile per service, as
+defense in depth, is a separate idea. claude-mesh's 7480 answering any local
+process without authentication is pplanel/claude-mesh#1.
+
 ### `homeReadScope`
 
 The home is the agent's own, so it reads all of it (`full`). In clone mode the
@@ -107,7 +140,7 @@ The wrapper writes it into the session tmp, in this order (SBPL applies the
 last matching rule, so the order is the policy):
 
 1. `claude-sandbox.sb`, the base
-2. `in-place.sb`, in in-place mode
+2. `in-place.sb`, in in-place mode, and the `network` options' rules
 3. the read grants, one rule per path
 4. `sensitive.sb`: credentials, after the grants so no grant reopens them
 5. the agent's home read (`homeReadScope`), after 4 so the agent still reads
@@ -182,14 +215,16 @@ Untested; this is the expected behavior, to check in the end-to-end test.
 `nix flake check`: nix builds run inside a sandbox, and `sandbox-exec` can't
 nest.
 
-- `agents.nix` builds the wrappers for two test agents (clone + full home;
-  in-place + state-only); `run.sh` composes their session profiles the way
+- `agents.nix` builds the wrappers for three test agents (clone + full home
+  + no network option; in-place + state-only; net, with every network
+  option on); `run.sh` composes their session profiles the way
   `wrapper.sh` does, in a scratch tree under `/private/tmp`.
 - **File cases**: `claude -p` starting, network enumeration, workspace writes, `.envrc`/`.git` allowed in clone and
   denied in in-place (with the `mv` bypass), grants, credentials winning over
   a grant of the whole home, both home scopes, `claude --version`.
 - **Network cases** (`net-probe.py`): every way out, run outside the sandbox
-  first as a control. A target unreachable even outside is skipped; a refused
+  first as a control, then inside the clone profile (only the proxy passes)
+  and the net profile (exactly what its options open passes). A target unreachable even outside is skipped; a refused
   connection counts as reachable outside and as let through inside, so only
   a real denial passes. Targets are found on the machine (gateway, a
   Tailscale peer, the Unix sockets that exist).
@@ -199,7 +234,7 @@ nest.
 - Checked against mutations: reopening `localhost:*` gives 2 wrong results,
   allowing `net.routetable` 3, dropping `CLAUDE_CODE_TMPDIR` 1.
 
-Last run (arrakis, 2026-10-15): 42 ok, 0 wrong, 2 skipped (no `~/.aws`,
+Last run (arrakis, 2026-10-15): 59 ok, 0 wrong, 2 skipped (no `~/.aws`,
 `~/.gnupg`).
 
 ## What the tests taught (SBPL)

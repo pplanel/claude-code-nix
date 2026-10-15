@@ -21,15 +21,31 @@
         _module.args = {inherit pkgs;};
         services.claude-sandbox = {
           enable = true;
-          agents.clone = {
-            uid = 601;
-            proxy.port = 8801;
-          };
-          agents.inplace = {
-            uid = 602;
-            proxy.port = 8802;
-            workspace.mode = "in-place";
-            homeReadScope = "state-only";
+          agents = {
+            # The defaults: clone mode, full home, no network option.
+            clone = {
+              uid = 601;
+              proxy.port = 8801;
+            };
+            inplace = {
+              uid = 602;
+              proxy.port = 8802;
+              workspace.mode = "in-place";
+              homeReadScope = "state-only";
+            };
+            # Every network option on, with the ports tests/run.sh probes
+            # (its PORT is 18901: +1 another local port, +2 the listen test).
+            net = {
+              uid = 603;
+              proxy.port = 8803;
+              network = {
+                localhostPorts = [18902];
+                listenPorts = [18903];
+                directPorts = [443];
+                bonjour = true;
+                unixSockets = ["/private/var/run/portmap.socket"];
+              };
+            };
           };
         };
       }

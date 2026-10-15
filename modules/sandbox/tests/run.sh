@@ -45,6 +45,7 @@ compose() { # <agent command> <granted path>...
 compose claude-clone "$work/granted" >"$work/clone.sb"
 compose claude-clone "$HOME" >"$work/clone-home.sb"
 compose claude-inplace >"$work/inplace.sb"
+compose claude-net >"$work/net.sb"
 
 PORT=18901
 sandboxed() { # <profile> <shell command>
@@ -102,7 +103,7 @@ check "read .git (git status)" PASS "$work/inplace.sb" 'git status --short'
 check "read the agent's .claude" PASS "$work/inplace.sb" "cat '$work/home/.claude/state'"
 check "read the rest of its home" BLOCK "$work/inplace.sb" "cat '$work/home/other'"
 
-echo "== network: reachable outside, then inside the clone profile"
+echo "== network: what's reachable on this machine (outside any sandbox)"
 gateway="$(route -n get default 2>/dev/null | awk '/gateway:/{print $2}')"
 peer="-"
 command -v tailscale >/dev/null &&
@@ -116,7 +117,7 @@ probe=(net-probe.py "$PORT" "${gateway:-127.0.0.2}" "${peer:--}" "${socks[@]}")
 
 # Listeners on the proxy port and the one next to it, so "another
 # localhost port" has something on the other end. nc exits after one
-# connection, so they start again for the inside run.
+# connection, so they start again for every run.
 listeners() {
   /usr/bin/nc -l 127.0.0.1 "$PORT" >/dev/null 2>&1 &
   /usr/bin/nc -l 127.0.0.1 "$((PORT + 1))" >/dev/null 2>&1 &
@@ -125,27 +126,51 @@ listeners() {
 listeners
 (cd "$work/target" && "$python" -I "${probe[@]}") >"$work/outside"
 kill %1 %2 2>/dev/null
-listeners
-sandboxed "$work/clone.sb" "$python -I ${probe[*]}" >"$work/inside"
-kill %1 %2 2>/dev/null
+echo "   $(grep -c . "$work/outside") targets probed"
+
+# Expected results inside the profiles. The clone agent has no network
+# option: only its proxy. The net agent (tests/agents.nix) has every one:
+# localhostPorts = [PORT+1], listenPorts = [PORT+2], directPorts = [443],
+# bonjour, unixSockets = [portmap].
+want_clone() { [[ "$1" == proxy* ]] && echo PASS || echo BLOCK; }
+want_net() {
+  case "$1" in
+  proxy* | "another localhost TCP port" | "listen on 127.0.0.1") echo PASS ;;
+  "internet TCP 1.1.1.1:443") echo PASS ;;                         # directPorts
+  "DNS lookup" | "unix /var/run/mDNSResponder") echo PASS ;;       # bonjour reopens DNS
+  "mDNS multicast"* | "AWDL multicast"*) echo PASS ;;              # bonjour: UDP 5353, any host
+  "unix /var/run/portmap.socket") echo PASS ;;                     # unixSockets, by real path
+  *) echo BLOCK ;;
+  esac
+}
 
 # A refused connection means the network path exists: outside, the target
 # counts as reachable; inside, the profile let it through (PASS). Only a
 # denial (PermissionError) counts as BLOCK inside.
-while IFS=$'\t' read -r name out why; do
-  in="$(awk -F'\t' -v n="$name" '$1 == n {print $2}' "$work/inside")"
-  in_why="$(awk -F'\t' -v n="$name" '$1 == n {print $3}' "$work/inside")"
-  [[ "$in_why" == *ConnectionRefused* ]] && in=PASS
-  want=BLOCK
-  [[ "$name" == proxy* ]] && want=PASS
-  if [[ "$out" == BLOCK && "$why" != *ConnectionRefused* ]]; then
-    report skip "$name" "$want" "$in" "(unreachable here even outside)"
-  elif [[ "$in" == "$want" ]]; then
-    report ok "$name" "$want" "$in"
-  else
-    report WRONG "$name" "$want" "$in"
-  fi
-done <"$work/outside"
+net_cases() { # <profile> <want function>
+  listeners
+  sandboxed "$1" "$python -I ${probe[*]}" >"$work/inside"
+  kill %1 %2 2>/dev/null
+  local name out why in in_why want
+  while IFS=$'\t' read -r name out why; do
+    in="$(awk -F'\t' -v n="$name" '$1 == n {print $2}' "$work/inside")"
+    in_why="$(awk -F'\t' -v n="$name" '$1 == n {print $3}' "$work/inside")"
+    [[ "$in_why" == *ConnectionRefused* ]] && in=PASS
+    want="$("$2" "$name")"
+    if [[ "$out" == BLOCK && "$why" != *ConnectionRefused* ]]; then
+      report skip "$name" "$want" "$in" "(unreachable here even outside)"
+    elif [[ "$in" == "$want" ]]; then
+      report ok "$name" "$want" "$in"
+    else
+      report WRONG "$name" "$want" "$in"
+    fi
+  done <"$work/outside"
+}
+
+echo "== network: clone agent (no network option, proxy only)"
+net_cases "$work/clone.sb" want_clone
+echo "== network: net agent (every network option on)"
+net_cases "$work/net.sb" want_net
 
 echo "== $ok ok, $wrong wrong, $skipped skipped"
 exit "$wrong"

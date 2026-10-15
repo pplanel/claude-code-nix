@@ -119,6 +119,60 @@ self: {
         '';
       };
 
+      # Everything here is closed by default; the agent's proxy is its only
+      # way out. SBPL filters network rules by port, with the host either
+      # "localhost" or "*": no rule can name one LAN host or one interface
+      # (awdl0, en0, utun*). Each option below says exactly what it opens.
+      network = {
+        localhostPorts = mkOption {
+          type = types.listOf types.port;
+          default = [];
+          example = [5432];
+          description = "Local ports the agent may connect to (TCP and UDP), e.g. a database. Not the owner's services: claude-mesh, other agents' proxies…";
+        };
+        listenPorts = mkOption {
+          type = types.listOf types.port;
+          default = [];
+          example = [3000];
+          description = "Local ports the agent may listen on, and connect to, e.g. a dev server it tests.";
+        };
+        directPorts = mkOption {
+          type = types.listOf types.port;
+          default = [];
+          description = ''
+            Ports the agent may reach on ANY host, without the proxy: the LAN,
+            Tailscale, AWDL peers and the internet alike. Peer-to-peer traffic
+            (AWDL, LAN) needs this; prefer proxy.allowedDomains for anything
+            that has a host name.
+          '';
+        };
+        bonjour = mkOption {
+          type = types.bool;
+          default = false;
+          description = ''
+            mDNS/DNS-SD: mDNSResponder's socket, the dnssd service, and UDP
+            5353 out, in and bound, to any host. mDNSResponder also serves
+            every DNS lookup, so this reopens DNS, an exfiltration channel.
+          '';
+        };
+        unixSockets = mkOption {
+          type = types.listOf types.str;
+          default = [];
+          description = ''
+            Unix sockets the agent may connect to, by real path
+            (/private/var/run/…, not /var/run/…). A daemon socket can be a way
+            out of the sandbox: the nix daemon builds what it's asked
+            (fixed-output derivations download outside the proxy), docker runs
+            containers. Don't list those.
+          '';
+        };
+        extraRules = mkOption {
+          type = types.lines;
+          default = "";
+          description = "Raw SBPL appended to the profile, after the base and the options above.";
+        };
+      };
+
       proxy = {
         port = mkOption {
           type = types.port;
@@ -201,12 +255,59 @@ self: {
     '';
   };
 
+  # The agent's `network` options as SBPL, one rule per port (SBPL takes no
+  # port ranges).
+  networkRules = agent: let
+    n = agent.network;
+    rules = kind: ports: lib.concatMapStrings (p: "  (${kind} \"${toString p}\")\n") ports;
+    quoted = p:
+      assert lib.assertMsg (!lib.hasInfix "\"" p && !lib.hasInfix "\\" p)
+      "services.claude-sandbox: network.unixSockets: no quotes or backslashes in ${p}"; ''"${p}"'';
+  in
+    lib.concatStrings [
+      (lib.optionalString (n.localhostPorts != []) ''
+        ;; network.localhostPorts
+        (allow network-outbound
+        ${rules "remote ip" (map (p: "localhost:${toString p}") n.localhostPorts)})
+      '')
+      (lib.optionalString (n.listenPorts != []) ''
+        ;; network.listenPorts: listen, accept, and connect to test them
+        (allow network-bind network-inbound
+        ${rules "local ip" (map (p: "localhost:${toString p}") n.listenPorts)})
+        (allow network-outbound
+        ${rules "remote ip" (map (p: "localhost:${toString p}") n.listenPorts)})
+      '')
+      (lib.optionalString (n.directPorts != []) ''
+        ;; network.directPorts: any host, without the proxy
+        (allow network-outbound
+        ${rules "remote ip" (map (p: "*:${toString p}") n.directPorts)})
+      '')
+      (lib.optionalString n.bonjour ''
+        ;; network.bonjour (also reopens DNS: mDNSResponder serves both)
+        (allow network-outbound
+          (literal "/private/var/run/mDNSResponder")
+          (remote udp "*:5353"))
+        (allow network-bind network-inbound (local udp "*:5353"))
+        (allow mach-lookup (global-name "com.apple.dnssd.service"))
+      '')
+      (lib.optionalString (n.unixSockets != []) ''
+        ;; network.unixSockets
+        (allow network-outbound
+        ${lib.concatMapStrings (p: "  (literal ${quoted p})\n") n.unixSockets})
+      '')
+      (lib.optionalString (n.extraRules != "") ''
+        ;; network.extraRules
+        ${n.extraRules}
+      '')
+    ];
+
   # The profile is head + this session's grants + tail; the wrapper joins
   # them, since grants come from the command line.
   profileHead = name: agent:
     pkgs.writeText "claude-sandbox-${name}-head.sb" (
       builtins.readFile ./claude-sandbox.sb
       + lib.optionalString (agent.workspace.mode == "in-place") ("\n" + builtins.readFile ./in-place.sb)
+      + lib.optionalString (networkRules agent != "") ("\n" + networkRules agent)
       + "\n;; Read grants (read.paths, --read), added by the wrapper:\n"
     );
   profileTail = name: agent:
