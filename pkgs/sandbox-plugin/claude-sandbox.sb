@@ -50,6 +50,10 @@
 ;; nothing: the agent can already write and exec binaries in TARGET_DIR/TMP_DIR.
 (allow dynamic-code-generation)
 
+;; Nix binaries load dylibs from the store (git needs pcre2). System libraries
+;; come from the dyld shared cache and need no rule.
+(allow file-map-executable (subpath "/nix/store"))
+
 ;; Prevent sandbox escape via task_for_pid / debugging / code-signature tampering.
 ;; A process may still read its own signature (/bin/sh checks it at startup).
 (deny process-info-codesignature)
@@ -166,13 +170,14 @@
 ;; In Seatbelt v3, later rules take precedence when specificity matches.
 ;; Placing these (deny file-write*) rules AFTER Section 4 guarantees they
 ;; override the workspace write permission.
+;; The whole .git, not .git/hooks: rules match each operation's own path, so
+;; `mv .git .gitx`, write .gitx/hooks/…, `mv .gitx .git` got past a hooks-only
+;; rule (tested). Agents don't commit; reading .git stays allowed.
 (deny file-write*
-  (subpath-firmlink (string-append (param "TARGET_DIR") "/.git/hooks"))
-  (literal-firmlink (string-append (param "TARGET_DIR") "/.git/config"))
-  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude/commands"))
-  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude/agents"))
-  (literal-firmlink (string-append (param "TARGET_DIR") "/.claude/settings.json"))
-  (literal-firmlink (string-append (param "TARGET_DIR") "/.claude/settings.local.json")))
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.git"))
+  ;; Same for .claude: hooks, commands, agents, skills, settings — all run by
+  ;; Pedro's own Claude. Agents never need to write there.
+  (subpath-firmlink (string-append (param "TARGET_DIR") "/.claude")))
 
 ;; ============================================================================
 ;; 6. NETWORK ACCESS (STRICT PER-AGENT LOCAL PROXY)
