@@ -11,10 +11,19 @@
   inherit (lib) mkOption types;
   cfg = config.programs.claude-code-nix.identity;
 
+  inherit (config.programs.claude-code-nix) hosts;
+
   plugin = pkgs.callPackage ../pkgs/identity-plugin {
-    inherit (cfg) githubOwner;
-    inherit (config.programs.claude-code-nix) hosts;
+    inherit (cfg) githubOwner hosts;
   };
+
+  # The same config runs on every host, so the command picks this host's
+  # agent name when it starts, by `hostname -s`, like the plugin does.
+  named = lib.filterAttrs (_: h: h.agentName != null) hosts;
+  agentNameSetup = lib.optionalString (named != {}) ''
+    case "$(/bin/hostname -s)" in
+    ${lib.concatStrings (lib.mapAttrsToList (host: h: "  ${lib.escapeShellArg host}) export CLAUDE_AGENT_NAME=${lib.escapeShellArg h.agentName} ;;\n") named)}esac
+  '';
 in {
   options.programs.claude-code-nix.identity = {
     enable = lib.mkEnableOption "the identity plugin";
@@ -44,6 +53,7 @@ in {
     ];
     programs.claude-code-nix.instances = lib.genAttrs cfg.instances (_: {
       plugins = [plugin];
+      extraSetup = agentNameSetup;
     });
   };
 }

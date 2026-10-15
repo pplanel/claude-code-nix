@@ -109,7 +109,7 @@ self: {
         else
           unset ANTHROPIC_API_KEY
         fi
-      ''}${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") i.extraEnv)}exec ${lib.getExe cfg.package} ${lib.escapeShellArgs (pluginArgs i ++ i.extraArgs)} "$@"
+      ''}${lib.concatStrings (lib.mapAttrsToList (k: v: "export ${k}=${lib.escapeShellArg v}\n") i.extraEnv)}${i.extraSetup}exec ${lib.getExe cfg.package} ${lib.escapeShellArgs (pluginArgs i ++ i.extraArgs)} "$@"
     '';
 in {
   imports = [./hosts.nix ./identity.nix (import ./mesh.nix self)];

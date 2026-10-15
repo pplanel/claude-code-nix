@@ -130,10 +130,12 @@ So `selfManagement.permissions`, on by default, adds these to every instance's s
 
 ```nix
 programs.claude-code-nix.hosts = {
-  laptop  = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; };
+  laptop  = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; agentName = "Liet"; };
   desktop = { src = "/Users/me/src"; configDir = "/Users/me/.claude"; };
 };
 ```
+
+`agentName` is optional: the name that host's agent chose for itself. The identity instances export it there as `CLAUDE_AGENT_NAME`, for hooks and tools to read (an atuin history author, say). It's data you record; the agent's own `self.md` stays memory and is never read as config.
 
 ### Mesh
 
@@ -167,6 +169,7 @@ What it does:
 - **At every session start** (new, resumed, cleared, after a compaction), a `SessionStart` hook gives Claude this machine's `<config dir>/identity/<host>/self.md` and the latest days of its `moments.md` (up to 6 KB). Each machine's agent writes its own; `identity/` isn't synced, so no machine reads another's.
 - **On every prompt**, a `UserPromptSubmit` hook asks Claude to start its reply with `[<host>]: `, so a synced transcript shows where each answer was written.
 - Both stay silent on a machine that isn't in `hosts`.
+- **The command exports `CLAUDE_AGENT_NAME`** when this machine's entry in `hosts` has an `agentName`, picked by `hostname -s` when it starts (the same config runs on every machine). Hooks inherit it.
 
 `nix flake check` builds the plugin for example hosts, tests both hooks' answers, and runs `claude plugin validate` on it.
 
