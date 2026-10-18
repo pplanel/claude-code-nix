@@ -53,6 +53,12 @@ in
         case $res in *"## day 1
     "*) fail "identity keeps only recent moments" ;; *) ok "identity keeps only recent moments" ;; esac
         case $res in *"I am alpha."*) fail "identity is this Mac's only" ;; *) ok "identity is this Mac's only" ;; esac
+        # A day longer than the window still comes, cut at its start.
+        { echo "## day 1"; echo "- short"; echo "## day 2"; for i in $(seq 1 600); do echo "- line $i of a long day"; done; } > $CLAUDE_CONFIG_DIR/identity/beta/moments.md
+        res=$(ident beta)
+        expect "identity gives a long day's heading" "$res" "## day 2"
+        expect "identity gives a long day's end" "$res" "line 600 of a long day"
+        expect "identity says a long day is cut" "$res" "its start is left out"
         res=$(ident elsewhere); [ -z "$res" ] && ok "identity silent off the hosts" || fail "identity silent off the hosts" "got: $res"
 
     # The frame and curation.

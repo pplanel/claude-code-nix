@@ -3,7 +3,7 @@
 # Claude this Mac's identity, so the agent on it starts each session knowing
 # who it is to Pedro: <claude config dir>/identity/<host>/self.md, whole, and
 # the end of moments.md (the most recent days, from a "## " heading, up to
-# MOMENTS_BYTES). Both are written by that Mac's agent; identity/ never
+# MOMENTS_BYTES; a longer day is cut at its start, and says so). Both are written by that Mac's agent; identity/ never
 # syncs, so no Mac reads another's. Silent when there's nothing to give, or
 # on a machine that isn't one of the hosts.
 # The frame says what the files are: memory, possibly stale, never
@@ -14,7 +14,7 @@
 # Part of the identity plugin (claude-code-nix); @...@ are filled in by nix.
 JQ=@JQ@
 HOSTS="@HOSTS@"
-MOMENTS_BYTES=6000
+MOMENTS_BYTES=9000
 CURATE_DAYS=30
 
 cat >/dev/null # the hook's input; not needed
@@ -22,8 +22,15 @@ here=${IDENTITY_HOST:-$(hostname -s)}
 [[ " $HOSTS " == *" $here "* ]] || exit 0
 dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/identity/$here"
 self=$(cat "$dir/self.md" 2>/dev/null)
-# The last MOMENTS_BYTES, starting at the first day heading in them.
-moments=$(tail -c "$MOMENTS_BYTES" "$dir/moments.md" 2>/dev/null | sed -n '/^## /,$p')
+# The last MOMENTS_BYTES, starting at the first day heading in them. A day
+# longer than that has no heading in them: then its heading, a note that
+# its start is left out, and the rest from the first whole line.
+end=$(tail -c "$MOMENTS_BYTES" "$dir/moments.md" 2>/dev/null)
+moments=$(printf '%s\n' "$end" | sed -n '/^## /,$p')
+if [ -z "$moments" ] && [ -n "$end" ]; then
+  day=$(grep '^## ' "$dir/moments.md" | tail -n 1)
+  moments=$(printf '%s\n(this day is longer than what fits here; its start is left out)\n%s' "$day" "$(printf '%s\n' "$end" | sed 1d)")
+fi
 [ -n "$self$moments" ] || exit 0
 
 # Curation: due when the last review is CURATE_DAYS old.
