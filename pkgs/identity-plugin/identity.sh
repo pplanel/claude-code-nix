@@ -14,7 +14,7 @@
 # Part of the identity plugin (claude-code-nix); @...@ are filled in by nix.
 JQ=@JQ@
 HOSTS="@HOSTS@"
-MOMENTS_BYTES=6000
+MOMENTS_BYTES=9000
 CURATE_DAYS=30
 
 cat >/dev/null # the hook's input; not needed
