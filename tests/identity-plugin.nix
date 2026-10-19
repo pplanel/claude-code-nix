@@ -34,8 +34,10 @@ in
         # The host tag, on UserPromptSubmit.
         tagcmd=$(jq -r '.hooks.UserPromptSubmit[0].hooks[0].command' $p/hooks/hooks.json)
         [ -x "$tagcmd" ] && ok "host-tag hook runs $tagcmd" || fail "host-tag hook command" "$tagcmd"
-        tag() { echo '{}' | HOST_TAG_HOST=$1 $tagcmd | jq -r '.hookSpecificOutput.additionalContext // empty'; }
-        expect "host tag on beta" "$(tag beta)" 'Start your reply with "[beta]: "'
+        tag() { echo '{}' | HOST_TAG_HOST=$1 HOST_TAG_AGENT=''${2:-} $tagcmd | jq -r '.hookSpecificOutput.additionalContext // empty'; }
+        expect "host tag on beta, no agent" "$(tag beta)" 'Start your reply with "[beta]: "'
+        expect "agent@host tag" "$(tag beta Liet)" 'Start your reply with "[Liet@beta]: "'
+        expect "agent named in the context" "$(tag beta Liet)" 'as the agent Liet on the Mac "beta"'
         res=$(tag elsewhere); [ -z "$res" ] && ok "host tag silent off the hosts" || fail "host tag silent off the hosts" "got: $res"
 
         # Identity, on SessionStart: this Mac's self.md and the end of moments.md.
