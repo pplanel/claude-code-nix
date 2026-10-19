@@ -59,6 +59,15 @@ in
         expect "identity gives a long day's heading" "$res" "## day 2"
         expect "identity gives a long day's end" "$res" "line 600 of a long day"
         expect "identity says a long day is cut" "$res" "its start is left out"
+        # A big self.md comes whole, moments.md gets the room left, and the
+        # whole stays under Claude Code's cap (past it, only a preview comes).
+        { echo "I am beta, at length."; for i in $(seq 1 120); do echo "- a long line about who I am, number $i"; done; echo "END OF SELF"; } > $CLAUDE_CONFIG_DIR/identity/beta/self.md
+        { echo "# moments"; for i in $(seq 1 400); do printf '## day %s\n- something happened on day %s\n' $i $i; done; } > $CLAUDE_CONFIG_DIR/identity/beta/moments.md
+        res=$(ident beta)
+        expect "identity gives a big self.md whole" "$res" "END OF SELF"
+        expect "identity gives the latest moment after a big self.md" "$res" "day 400"
+        [ ''${#res} -le 10000 ] && ok "identity stays under the cap (''${#res})" || fail "identity stays under the cap" "''${#res} characters"
+        echo "I am beta." > $CLAUDE_CONFIG_DIR/identity/beta/self.md
         res=$(ident elsewhere); [ -z "$res" ] && ok "identity silent off the hosts" || fail "identity silent off the hosts" "got: $res"
 
     # The frame and curation.
