@@ -1,25 +1,25 @@
 {
-  "version": "2.1.318",
+  "version": "2.1.319",
   "platforms": {
     "darwin-arm64": {
       "binary": "claude",
-      "checksum": "677a2ea7bf576cedd20e191d973914ed8a41796f53a63b1923381ddc4d5b5e7d",
-      "size": 319598464
+      "checksum": "1f53587e92dee8e089fa349188a4cda64fa34ace6e7b0ca2ee278ddaa3cc2ebd",
+      "size": 321995200
     },
     "darwin-x64": {
       "binary": "claude",
-      "checksum": "ee9c8577a528aa8efa478bf552b17efa40bb58aa4981d2913c13d383a4d409a4",
-      "size": 334272544
+      "checksum": "af6f1f5510ae98d56a155bf8f007aa9d5b44efccc9c10c8e10ef35039e95a940",
+      "size": 336699808
     },
     "linux-arm64": {
       "binary": "claude",
-      "checksum": "53a0d7e219d7b0804ecba5dbc002745e89f786cc946d2de85a6470d5b2d1fb06",
-      "size": 337438136
+      "checksum": "a7e687fd1cb054d651c7588223de3786c99d4c682365e3c3ae1e59ce7f3a591f",
+      "size": 339797432
     },
     "linux-x64": {
       "binary": "claude",
-      "checksum": "708c77b204db30086ff6f1ed34577bda03e1be74ced80557cbf7b54249ebf0bd",
-      "size": 337814032
+      "checksum": "dabafec82ca1319fa43d8be36a10fc61b1d11821cb98ad5df04ad95e199b8eed",
+      "size": 340226576
     }
   }
 }
